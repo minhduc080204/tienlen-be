@@ -26,7 +26,8 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(new ApiErrorResponse(
                         500,
-                        "Lỗi hệ thống"
+                        ex.getMessage()
+                        // "Lỗi hệ thống"
                 ));
     }
 }
