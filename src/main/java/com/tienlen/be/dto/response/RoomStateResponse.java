@@ -22,9 +22,9 @@ public class RoomStateResponse {
         res.status = room.getStatus().name();
         res.seatIndex = seatIndex;
 
-        res.players = room.getPlayers().stream()
-                .map(PlayerResponse::from)
-                .collect(Collectors.toList());
+//        res.players = room.getPlayers().stream()
+//                .map(PlayerResponse::from)
+//                .collect(Collectors.toList());
 
         return res;
     }

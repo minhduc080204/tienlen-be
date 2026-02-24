@@ -5,6 +5,7 @@ import com.tienlen.be.dto.response.RoomStateResponse;
 import com.tienlen.be.model.Player;
 import com.tienlen.be.model.Room;
 import com.tienlen.be.model.RoomStatus;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
@@ -14,6 +15,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
+@RequiredArgsConstructor
 public class RoomService {
 
     private final Map<Integer, Room> rooms = new ConcurrentHashMap<>();
