@@ -1,68 +1,26 @@
 package com.tienlen.be.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tienlen.be.dto.payload.ChatPayload;
 import com.tienlen.be.dto.payload.ReadyPayload;
 import com.tienlen.be.dto.request.SocketAction;
-import com.tienlen.be.dto.response.ChatMessageResponse;
-import com.tienlen.be.dto.response.SocketResponse;
+import com.tienlen.be.dto.response.PlayerResponse;
+import com.tienlen.be.dto.response.RoomStateResponse;
 import com.tienlen.be.dto.response.UserResponse;
-import com.tienlen.be.model.Card;
 import com.tienlen.be.model.Player;
 import com.tienlen.be.model.Room;
 import com.tienlen.be.model.RoomStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.logging.log4j.message.SimpleMessage;
 import org.springframework.stereotype.Service;
-import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
-
-import java.util.ArrayList;
-import java.util.List;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class GameService {
     private final RoomService roomService;
+    private final UserService userService;
     private final JwtService jwtService;
-    private final ObjectMapper mapper = new ObjectMapper();
-
-    /*
-     * Khi player connect
-     */
-
-    public void joinRoom(WebSocketSession session){
-        UserResponse user = getUserFromToken(session);
-        int roomId = getRoomIdFromSession(session);
-
-        Room room = roomService.getRoom(roomId);
-        Player player = new Player(user, room.getNumberPlayer());
-
-        room.addPlayer(player, session);
-
-        session.getAttributes().put("player", player);
-        session.getAttributes().put("room", room);
-        log.info("User {} joined room {}", user.getId(), room.getRoomId());
-    }
-
-    /*
-     * Chat logic
-     */
-    public void chat(Room room,
-                     Player player,
-                     String content) {
-
-        SocketResponse<ChatPayload> response =
-                new SocketResponse<>(
-                        SocketAction.CHAT,
-                        new ChatPayload(player.getUser(), content),
-                        System.currentTimeMillis()
-                );
-
-        room.broadcast(response);
-    }
 
     private String getToken(WebSocketSession session) {
         String query = session.getUri().getQuery();
@@ -101,10 +59,58 @@ public class GameService {
             throw new RuntimeException("Invalid JWT token");
         }
 
-        return jwtService.parse(token); // parse → UserResponse
+        return jwtService.parse(token);
     }
 
-    public void ready(Room room, Player player) {
+    public void handleJoinRoom(WebSocketSession session){
+        UserResponse u = getUserFromToken(session);
+        UserResponse user = new UserResponse(userService.getByUserId(u.getId()));
+        int roomId = getRoomIdFromSession(session);
+
+        Room room = roomService.getRoom(roomId);
+        Player player = new Player(user, room.getNumberPlayer());
+
+        room.addPlayer(player, session);
+
+        session.getAttributes().put("player", player);
+        session.getAttributes().put("room", room);
+
+        RoomStateResponse snapshot = RoomStateResponse.from(room, PlayerResponse.from(player, true));
+
+        room.sendSnapshotTo(player, SocketAction.SYNC_DATA, snapshot);
+
+        room.broadcastEvent(
+                SocketAction.JOIN_ROOM,
+                PlayerResponse.from(player, false)
+        );
+        log.info("User {} joined room {}", user.getId(), room.getRoomId());
+    }
+
+    public void handleLeftRoom(WebSocketSession session){
+        UserResponse user = getUserFromToken(session);
+        int roomId = getRoomIdFromSession(session);
+
+        Room room = roomService.getRoom(roomId);
+
+        room.removePlayerByUserId(user.getId());
+
+        log.info("Session closed {}", session.getId());
+    }
+    /*
+     * Chat logic
+     */
+    public void handleChat(
+        Room room,
+        Player player,
+        String content
+    ) {
+        room.broadcastEvent(
+            SocketAction.CHAT,
+            new ChatPayload(player.getUser(), content)
+        );
+    }
+
+    public void handleReady(Room room, Player player) {
 
         if (room.getStatus() != RoomStatus.WAITING) {
             return;
@@ -112,16 +118,10 @@ public class GameService {
 
         player.setReady(true);
 
-
-
-        SocketResponse<ReadyPayload> response =
-                new SocketResponse<>(
-                        SocketAction.CHAT,
-                        new ReadyPayload(player.getUser().getId()),
-                        System.currentTimeMillis()
-                );
-
-        room.broadcast(response);
+        room.broadcastEvent(
+                SocketAction.READY,
+                new ReadyPayload(player.getUser().getId())
+        );
 
         boolean allReady = room.getPlayers().values()
                 .stream()

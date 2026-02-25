@@ -1,14 +1,11 @@
 package com.tienlen.be.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.tienlen.be.dto.response.RoomStateResponse;
-import com.tienlen.be.model.Player;
+import com.tienlen.be.dto.response.UserResponse;
+import com.tienlen.be.exception.BadRequestException;
 import com.tienlen.be.model.Room;
 import com.tienlen.be.model.RoomStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.web.socket.TextMessage;
-import org.springframework.web.socket.WebSocketSession;
 
 import java.util.Map;
 import java.util.Optional;
@@ -19,10 +16,17 @@ import java.util.concurrent.ConcurrentHashMap;
 public class RoomService {
 
     private final Map<Integer, Room> rooms = new ConcurrentHashMap<>();
+    private final UserService userService;
 
-    public Optional<Room> findAvailableRoom() {
+    public Optional<Room> findAvailableRoom(long userId) {
+        UserResponse user = getUserResponseByUserId(userId);
+
         return rooms.values().stream()
-                .filter(r -> !r.isFull() && r.getStatus() == RoomStatus.WAITING)
+                .filter(r ->
+                        !r.isFull() &&
+                        r.getStatus() == RoomStatus.WAITING &&
+                        r.isEnoughToken(user.getTokenBalance())
+                )
                 .findFirst();
     }
 
@@ -31,10 +35,14 @@ public class RoomService {
         return room != null && room.getPlayers().containsKey(userId);
     }
 
-    public Room createRoom() {
-        Room room = new Room();
-        room.setStatus(RoomStatus.WAITING);
-        room.setCurrentTurn(0);
+    public Room createRoom(Long userId, long betToken) {
+        UserResponse user = getUserResponseByUserId(userId);
+
+        if(user.getTokenBalance()<betToken){
+            throw new BadRequestException("Không đủ token");
+        }
+
+        Room room = new Room(betToken);
 
         rooms.put(room.getRoomId(), room);
         return room;
@@ -47,5 +55,9 @@ public class RoomService {
     public int getRoomSize(){
         System.out.println(rooms);
         return rooms.size();
+    }
+
+    private UserResponse getUserResponseByUserId(long userId){
+        return new UserResponse(userService.getByUserId(userId));
     }
 }

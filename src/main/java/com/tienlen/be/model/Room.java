@@ -1,6 +1,9 @@
 package com.tienlen.be.model;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tienlen.be.dto.request.SocketAction;
+import com.tienlen.be.dto.response.SocketResponse;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -26,11 +29,14 @@ public class Room {
 
     private int roomId;
     private int currentTurn;
+    private long betToken;
     private RoomStatus status;
 
-    public Room () {
+    public Room (long betToken) {
         this.roomId = ROOM_ID_GENERATOR.getAndIncrement();
         this.status = RoomStatus.WAITING;
+        this.currentTurn=0;
+        this.betToken = betToken;
     }
 
     public void addPlayer(Player player, WebSocketSession session) {
@@ -41,8 +47,49 @@ public class Room {
         sessions.put(player.getUser().getId(), session);
     }
 
+    public void removePlayerByUserId(Long userId) {
+
+        Player removedPlayer = players.remove(userId);
+
+        if (removedPlayer == null) {
+            return;
+        }
+
+        // remove session
+        WebSocketSession session = sessions.remove(userId);
+
+        if (session != null && session.isOpen()) {
+            try {
+                session.close();
+            } catch (Exception e) {
+                log.warn("Error closing session for user {}", userId);
+            }
+        }
+
+        log.info("User {} left room {}", userId, roomId);
+
+        // 🔥 broadcast cho người còn lại
+        broadcastEvent(
+                SocketAction.LEFT_ROOM,
+                Map.of("userId", userId)
+        );
+
+        if (players.isEmpty()) {
+            log.info("Room {} is empty", roomId);
+            // cleanup nếu cần
+        }
+    }
+
+    public int getSeatIndex(Player player) {
+        return player.getSeatIndex();
+    }
+
     public boolean isFull (){
         return players.size()>=maxPlayers;
+    }
+
+    public boolean isEnoughToken (long token){
+        return token>=this.betToken;
     }
 
     public int getNumberPlayer (){
@@ -53,38 +100,65 @@ public class Room {
         return sessions.values();
     }
 
-    public void broadcast(Object payload) {
+    private String toJson(Object object) {
         try {
-            String json = mapper.writeValueAsString(payload);
+            return mapper.writeValueAsString(object);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("JSON parse error", e);
+        }
+    }
 
-            sessions.values().forEach(session -> {
-                try {
-                    if (session.isOpen()) {
-                        session.sendMessage(new TextMessage(json));
-                    }
-                } catch (Exception e) {
-                    log.error("Send error", e);
-                }
-            });
+    private void send(WebSocketSession session, String message) {
+        try {
+            if (session == null || !session.isOpen()) {
+                return;
+            }
+
+            session.sendMessage(new TextMessage(message));
 
         } catch (Exception e) {
-            log.error("Broadcast error", e);
+            log.warn("Send failed, removing closed session");
+        }
+    }
+
+    public void broadcastEvent(SocketAction action, Object payload) {
+
+        SocketResponse<Object> response =
+                new SocketResponse<>(
+                        action,
+                        payload,
+                        System.currentTimeMillis()
+                );
+
+        String message = toJson(response);
+
+        for (WebSocketSession session : sessions.values()) {
+            send(session, message);
         }
     }
 
     /*
      * Send to single player
      */
-    public void sendTo(Long userId, Object payload) {
-        try {
-            WebSocketSession session = sessions.get(userId);
-            if (session == null || !session.isOpen()) return;
+    public void sendSnapshotTo(Player player,
+                               SocketAction action,
+                               Object payload) {
 
-            String json = mapper.writeValueAsString(payload);
-            session.sendMessage(new TextMessage(json));
+        WebSocketSession session = sessions.get(player.getUser().getId());
 
-        } catch (Exception e) {
-            log.error("SendTo error", e);
+        if (session == null || !session.isOpen()) {
+            return;
         }
+
+        SocketResponse<Object> response =
+                new SocketResponse<>(
+                        action,
+                        payload,
+                        System.currentTimeMillis()
+                );
+
+        send(session, toJson(response));
     }
+
+
 }

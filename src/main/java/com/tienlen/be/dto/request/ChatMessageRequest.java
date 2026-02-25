@@ -6,5 +6,5 @@ import lombok.Data;
 public class ChatMessageRequest {
     private int roomId;
     private SocketAction action;   // CHAT
-    private String content;
+    private String data;
 }

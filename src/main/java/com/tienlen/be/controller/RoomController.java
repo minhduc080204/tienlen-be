@@ -4,7 +4,6 @@ import com.tienlen.be.dto.response.QuickJoinResponse;
 import com.tienlen.be.dto.response.UserResponse;
 import com.tienlen.be.model.Room;
 import com.tienlen.be.security.CurrentUser;
-import com.tienlen.be.service.JwtService;
 import com.tienlen.be.service.PlayerService;
 import com.tienlen.be.service.RoomService;
 import lombok.RequiredArgsConstructor;
@@ -33,8 +32,13 @@ public class RoomController {
     }
 
     @PostMapping("/create")
-    public Map<String, Integer> createRoom() {
-        Room room = roomService.createRoom();
+    public Map<String, Integer> createRoom(
+        @CurrentUser UserResponse user,
+        String betToken
+    ) {
+        long tk = Long.parseLong(betToken);
+
+        Room room = roomService.createRoom(user.getId(),tk);
         return Map.of("roomId", room.getRoomId());
     }
 
@@ -43,7 +47,6 @@ public class RoomController {
             @CurrentUser UserResponse user
     ) {
         Integer currentRoom = playerService.getCurrentRoom(user.getId());
-
         if (currentRoom != null) {
             // user đã ở trong room → reconnect
             return new QuickJoinResponse(
@@ -51,8 +54,9 @@ public class RoomController {
                     "/ws/room?roomId=" + currentRoom
             );
         }
-        Room room = roomService.findAvailableRoom()
-                .orElseGet(roomService::createRoom);
+
+        Room room = roomService.findAvailableRoom(user.getId())
+                .orElseGet(() -> roomService.createRoom(user.getId(), 10));
 
         return new QuickJoinResponse(
                 room.getRoomId(),

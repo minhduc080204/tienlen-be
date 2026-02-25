@@ -2,14 +2,9 @@ package com.tienlen.be.websocket;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tienlen.be.dto.request.ChatMessageRequest;
-import com.tienlen.be.dto.request.SocketAction;
-import com.tienlen.be.dto.response.ChatMessageResponse;
-import com.tienlen.be.dto.response.UserResponse;
 import com.tienlen.be.model.Player;
 import com.tienlen.be.model.Room;
 import com.tienlen.be.service.GameService;
-import com.tienlen.be.service.JwtService;
-import com.tienlen.be.service.RoomService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -28,7 +23,12 @@ public class GameSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
-        gameService.joinRoom(session);
+        gameService.handleJoinRoom(session);
+    }
+
+    @Override
+    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
+        gameService.handleLeftRoom(session);
     }
 
     @Override
@@ -39,7 +39,6 @@ public class GameSocketHandler extends TextWebSocketHandler {
 
         ChatMessageRequest request =
                 mapper.readValue(message.getPayload(), ChatMessageRequest.class);
-
         Player player = (Player) session.getAttributes().get("player");
         Room room = (Room) session.getAttributes().get("room");
 
@@ -48,11 +47,12 @@ public class GameSocketHandler extends TextWebSocketHandler {
             return;
         }
 
+        System.out.println(request);
         switch (request.getAction()) {
 
-            case CHAT -> gameService.chat(room, player, request.getContent());
+            case CHAT -> gameService.handleChat(room, player, request.getData());
 
-//            case READY -> handleReady(room, player);
+            case READY -> gameService.handleReady(room, player);
 
 //            case PLAY_CARDS -> handlePlayCards(room, player, request);
 

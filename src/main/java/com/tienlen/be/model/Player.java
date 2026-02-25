@@ -10,9 +10,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
 @Getter
 @Setter
 public class Player {
-    private int seatIndex;
     private UserResponse user;
-    private List<Card> hand = new CopyOnWriteArrayList<>();
+    private int seatIndex;
+    private List<Card> handCards = new CopyOnWriteArrayList<>();
     private boolean isBot;
     private boolean isReady;
 
