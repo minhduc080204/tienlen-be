@@ -14,6 +14,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.WebSocketSession;
 
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -21,6 +26,8 @@ public class GameService {
     private final RoomService roomService;
     private final UserService userService;
     private final JwtService jwtService;
+    private final ScheduledExecutorService scheduler =
+            Executors.newSingleThreadScheduledExecutor();
 
     private String getToken(WebSocketSession session) {
         String query = session.getUri().getQuery();
@@ -123,19 +130,51 @@ public class GameService {
                 new ReadyPayload(player.getUser().getId())
         );
 
-        boolean allReady = room.getPlayers().values()
-                .stream()
-                .allMatch(Player::isReady);
+        if (room.isReadyToStartCountdown()) {
+            // 👉 Chuyển sang READY
+            room.setStatus(RoomStatus.READY);
 
-        if (allReady && room.getPlayers().size() >= 2) {
-//            startGame(room);
+            // 👉 Thông báo client bắt đầu countdown 5s
+            room.broadcastEvent(
+                    SocketAction.START_COUNTDOWN,
+                    5
+            );
+
+            ScheduledFuture<?> future = scheduler.schedule(() -> {
+
+                if (room.isReadyToStartCountdown()) {
+                    room.startGame();
+                } else {
+                    room.cancelCountdown();
+                    room.setStatus(RoomStatus.WAITING);
+                }
+
+                // 👉 clear task sau khi chạy xong
+                room.setCountdownTask(null);
+
+            }, 5, TimeUnit.SECONDS);
+
+            room.setCountdownTask(future);
         }
     }
 
-//    private void startGame(Room room) {
-//
-//        room.setStatus(RoomStatus.PLAYING);
-//
+    public void handleUnReady(Room room, Player player) {
+        player.setReady(false);
+        room.setStatus(RoomStatus.WAITING);
+
+        room.broadcastEvent(
+                SocketAction.UNREADY,
+                new ReadyPayload(player.getUser().getId())
+        );
+
+    }
+
+
+
+    private void startGame(Room room) {
+
+        room.setStatus(RoomStatus.PLAYING);
+
 //        List<Card> deck = createDeck();
 //        dealCards(room, deck);
 //
@@ -146,5 +185,9 @@ public class GameService {
 //        room.setCurrentTurnUserId(firstTurn);
 //
 //        broadcastGameState(room);
-//    }
+        room.broadcastEvent(
+                SocketAction.START_GAME,
+                null
+        );
+    }
 }

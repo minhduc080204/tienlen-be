@@ -11,7 +11,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 @Setter
 public class Player {
     private UserResponse user;
-    private int seatIndex;
+        private int seatIndex; // 0 -> 3
     private List<Card> handCards = new CopyOnWriteArrayList<>();
     private boolean isBot;
     private boolean isReady;

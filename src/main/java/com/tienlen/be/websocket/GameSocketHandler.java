@@ -5,6 +5,7 @@ import com.tienlen.be.dto.request.ChatMessageRequest;
 import com.tienlen.be.model.Player;
 import com.tienlen.be.model.Room;
 import com.tienlen.be.service.GameService;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -22,12 +23,12 @@ public class GameSocketHandler extends TextWebSocketHandler {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Override
-    public void afterConnectionEstablished(WebSocketSession session) {
+    public void afterConnectionEstablished(@NonNull WebSocketSession session) {
         gameService.handleJoinRoom(session);
     }
 
     @Override
-    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
+    public void afterConnectionClosed(@NonNull WebSocketSession session, @NonNull CloseStatus status) {
         gameService.handleLeftRoom(session);
     }
 
@@ -53,6 +54,8 @@ public class GameSocketHandler extends TextWebSocketHandler {
             case CHAT -> gameService.handleChat(room, player, request.getData());
 
             case READY -> gameService.handleReady(room, player);
+
+            case UNREADY -> gameService.handleUnReady(room, player);
 
 //            case PLAY_CARDS -> handlePlayCards(room, player, request);
 

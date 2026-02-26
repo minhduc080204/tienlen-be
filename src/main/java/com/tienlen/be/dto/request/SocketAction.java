@@ -6,11 +6,13 @@ public enum SocketAction {
 
     READY,
     UNREADY,
+    START_COUNTDOWN,
 
     START_GAME,
     PLAY_CARDS,
     PASS,
     TIMEOUT,
+    NEXT_TURN,
 
     GAME_FINISHED,
 
