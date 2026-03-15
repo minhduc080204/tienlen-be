@@ -16,20 +16,21 @@ import java.security.SecureRandom;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 @Getter
 @Setter
 @Slf4j
 public class Room {
-    public static int MAXPLAYERS = 4;
-    public static int TIMEFORREADY = 5;
-    public static int TIMEFORTURN = 15;
+    public static int MAX_PLAYERS = 4;
+    public static int TIME_OF_READY = 5;
+    public static int TIME_OF_TURN = 15;
     private static final AtomicInteger ROOM_ID_GENERATOR =
             new AtomicInteger(10000);
 
     private Map<Long, WebSocketSession> sessions = new ConcurrentHashMap<>();
     private Map<Long, Player> players = new ConcurrentHashMap<>();
-    private Map<Long, Card> lastPlayedCards = new ConcurrentHashMap<>();
+    private List<String> table = new ArrayList<>();
     private final ObjectMapper mapper = new ObjectMapper();
     private ScheduledFuture<?> countdownTask;
     private ScheduledFuture<?> turnTimerTask;
@@ -49,6 +50,11 @@ public class Room {
         this.betToken = betToken;
     }
 
+    public void shutdown(){
+        cancelTurnTimer();
+        sessions.clear();
+    }
+
     public void addPlayer(Player player, WebSocketSession session) {
         if(isFull()){
             throw new RuntimeException("Room full");
@@ -57,12 +63,12 @@ public class Room {
         sessions.put(player.getUser().getId(), session);
     }
 
-    public void removePlayerByUserId(Long userId) {
+    public boolean removePlayerByUserId(Long userId) {
 
         Player removedPlayer = players.remove(userId);
 
         if (removedPlayer == null) {
-            return;
+            return false;
         }
 
         // remove session
@@ -86,20 +92,40 @@ public class Room {
 
         if (players.isEmpty()) {
             log.info("Room {} is empty", roomId);
-            // cleanup nếu cần
+            return true;
         }
+        return false;
     }
 
     public boolean isFull (){
-        return players.size()>= MAXPLAYERS;
+        return players.size()>= MAX_PLAYERS;
     }
 
     public boolean isEnoughToken (long token){
         return token>=this.betToken;
     }
 
-    public int getNumberPlayer (){
-        return players.size();
+    public int getNewSeatIndex() {
+        if (players == null || players.isEmpty()) {
+            return 0;
+        }
+
+        List<Player> playerList = new ArrayList<>(players.values());
+        for (int i = 0; i < 4; i++) {
+            boolean taken = false;
+
+            for (Player player : playerList) {
+                if (player.getSeatIndex() == i) {
+                    taken = true;
+                    break;
+                }
+            }
+
+            if (!taken) {
+                return i;
+            }
+        }
+        return 4;
     }
 
     public void cancelCountdown() {
@@ -163,10 +189,10 @@ public class Room {
         List<Player> playerList = new ArrayList<>(players.values());
 
         // 1️⃣ Ưu tiên người có 3♣
-        for (int i = 0; i < playerList.size(); i++) {
-            for (Card card : playerList.get(i).getHandCards()) {
+        for (Player p:playerList) {
+            for (Card card : p.getHandCards()) {
                 if (card.getRank() == 3 && card.getSuit() == 2) {
-                    return i;
+                    return p.getSeatIndex();
                 }
             }
         }
@@ -175,9 +201,8 @@ public class Room {
         int firstTurnIndex = 0;
         Card smallestCard = null;
 
-        for (int i = 0; i < playerList.size(); i++) {
-            for (Card card : playerList.get(i).getHandCards()) {
-
+        for (Player p:playerList) {
+            for (Card card : p.getHandCards()) {
                 // bỏ qua 3♠
                 if (card.getRank() == 3 && card.getSuit() == 1) {
                     continue;
@@ -187,7 +212,7 @@ public class Room {
                         || isSmaller(card, smallestCard)) {
 
                     smallestCard = card;
-                    firstTurnIndex = i;
+                    firstTurnIndex = p.getSeatIndex();
                 }
             }
         }
@@ -234,8 +259,13 @@ public class Room {
 
     private void startTurn() {
         cancelTurnTimer(); // đảm bảo không còn timer cũ
+        log.info("CURRENT TURN IS: {}", currentTurn);
 
-        Player currentPlayer = getPlayerBySeat(currentTurn);
+//        Player currentPlayer = getPlayerBySeatIndex(currentTurn);
+//
+//        if (currentPlayer==null){
+//            throw new RuntimeException("currentPlayer is null");
+//        }
 
 //        List<Integer> allowedCardIds =
 //                calculateAllowedCards(currentPlayer);
@@ -244,22 +274,33 @@ public class Room {
         broadcastEvent(
                 SocketAction.NEXT_TURN,
                 Map.of(
-                    "playerId", currentPlayer.getUser().getId(),
+                    "currentTurn", currentTurn,
 //                    "allowedCardIds", allowedCardIds,
-                    "duration", TIMEFORTURN
+                    "duration", TIME_OF_TURN
                 )
         );
 
-        // Bắt đầu đếm 15s
+        scheduleNextTurn();
+    }
+
+    private void scheduleNextTurn() {
         turnTimerTask = scheduler.schedule(() -> {
+            if(status!=RoomStatus.PLAYING) return;
             try {
+                int next;
+
                 synchronized (Room.this) {
-                    moveToNextTurn();
+                    next = findNextTurn();
+                    currentTurn = next;
                 }
+
+                // Dispatch sang thread khác nếu có executor riêng
+                startTurn();
+
             } catch (Exception e) {
                 log.error("Turn timer crashed", e);
             }
-        }, TIMEFORTURN, TimeUnit.SECONDS);
+        }, TIME_OF_TURN, TimeUnit.SECONDS);
     }
 
 //    private List<Integer> calculateAllowedCards(Player player) {
@@ -279,53 +320,45 @@ public class Room {
 //            .toList();
 //    }
 
-    private void autoPass() {
 
-//        broadcastEvent(
-//            SocketAction.PASS,
-//            Map.of("playerId",
-//                new ArrayList<>(players.values())
-//                    .get(currentTurn)
-//                    .getUser().getId()
-//            )
-//        );
+    public int findNextTurn() {
+        List<Player> playerList = new ArrayList<>(players.values());
 
-        moveToNextTurn();
-    }
+        Set<Integer> activeSeats = playerList.stream()
+                .map(Player::getSeatIndex)
+                .collect(Collectors.toSet());
 
-    private void moveToNextTurn() {
+        int nextSeat = currentTurn;
 
-        if (players.size() < 2) {
-//            endGame();
-            return;
+        for (int i = 0; i < 4; i++) {
+            nextSeat = (nextSeat + 1) % 4;
+
+            if (activeSeats.contains(nextSeat)) {
+                return nextSeat;
+            }
         }
 
-        int attempts = 0;
-
-        do {
-            currentTurn = (currentTurn + 1) % MAXPLAYERS;
-            attempts++;
-
-            if (attempts > MAXPLAYERS) {
-                return; // tránh loop vô hạn
-            }
-
-        } while (getPlayerBySeat(currentTurn) == null);
-
-        startTurn();
+        throw new IllegalStateException("No next turn found");
     }
 
-    private Player getPlayerBySeat(int seatIndex) {
+    public void playerAttack(Player player, List<String> cardIds){
+        this.table=cardIds;
+//        players.get(player.getUser().getId()).
+        startTurn();
+
+    }
+
+    private Player getPlayerBySeatIndex(int seatIndex) {
         return players.values()
-                .stream()
-                .filter(p -> p.getSeatIndex() == seatIndex)
-                .findFirst()
-                .orElse(null);
+            .stream()
+            .filter(p -> p.getSeatIndex() == seatIndex)
+            .findFirst()
+            .orElse(null);
     }
 
     private void cancelTurnTimer() {
         if (turnTimerTask != null && !turnTimerTask.isDone()) {
-            turnTimerTask.cancel(true);
+            turnTimerTask.cancel(false);
         }
         turnTimerTask = null;
     }

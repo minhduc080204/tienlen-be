@@ -57,6 +57,12 @@ public class RoomService {
         return rooms.size();
     }
 
+    public void deleteRoom(int roomId){
+        Room room = rooms.remove(roomId);
+        room.shutdown();
+    }
+
+
     private UserResponse getUserResponseByUserId(long userId){
         return new UserResponse(userService.getByUserId(userId));
     }

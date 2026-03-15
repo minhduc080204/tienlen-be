@@ -9,7 +9,7 @@ public enum SocketAction {
     START_COUNTDOWN,
 
     START_GAME,
-    PLAY_CARDS,
+    ATTACK,
     PASS,
     TIMEOUT,
     NEXT_TURN,

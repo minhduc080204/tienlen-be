@@ -48,6 +48,7 @@ public class AuthService {
         User user = new User();
         user.setAccount(request.getAccount());
         user.setName(request.getName());
+        user.setTokenBalance(1000);
         user.setPassword(passwordEncoder.encode(request.getPassword()));
 
         userRepository.save(user);

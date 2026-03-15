@@ -14,6 +14,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.WebSocketSession;
 
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -44,43 +46,25 @@ public class GameService {
         throw new RuntimeException("token not found");
     }
 
-    private int getRoomIdFromSession(WebSocketSession session) {
-        String query = session.getUri().getQuery();
-        if (query == null) {
-            throw new RuntimeException("Missing query params");
-        }
-
-        for (String param : query.split("&")) {
-            if (param.startsWith("roomId=")) {
-                return Integer.parseInt(param.split("=")[1]);
-            }
-        }
-
-        throw new RuntimeException("roomId not found");
-    }
-
     private UserResponse getUserFromToken(WebSocketSession session) {
         String token = getToken(session);
 
         if (!jwtService.validate(token)) {
             throw new RuntimeException("Invalid JWT token");
         }
-
         return jwtService.parse(token);
     }
 
-    public void handleJoinRoom(WebSocketSession session){
+    public void handleJoinRoom(WebSocketSession session, Room room){
         UserResponse u = getUserFromToken(session);
         UserResponse user = new UserResponse(userService.getByUserId(u.getId()));
-        int roomId = getRoomIdFromSession(session);
 
-        Room room = roomService.getRoom(roomId);
-        Player player = new Player(user, room.getNumberPlayer());
+        Player player = new Player(user, room.getNewSeatIndex());
 
         room.addPlayer(player, session);
 
         session.getAttributes().put("player", player);
-        session.getAttributes().put("room", room);
+        session.getAttributes().put("user", user);
 
         RoomStateResponse snapshot = RoomStateResponse.from(room, PlayerResponse.from(player, true));
 
@@ -93,15 +77,10 @@ public class GameService {
         log.info("User {} joined room {}", user.getId(), room.getRoomId());
     }
 
-    public void handleLeftRoom(WebSocketSession session){
-        UserResponse user = getUserFromToken(session);
-        int roomId = getRoomIdFromSession(session);
-
-        Room room = roomService.getRoom(roomId);
-
-        room.removePlayerByUserId(user.getId());
-
-        log.info("Session closed {}", session.getId());
+    public void handleLeftRoom(Room room, UserResponse user){
+        if(room.removePlayerByUserId(user.getId())){
+            roomService.deleteRoom(room.getRoomId());
+        }
     }
     /*
      * Chat logic
@@ -126,8 +105,8 @@ public class GameService {
         player.setReady(true);
 
         room.broadcastEvent(
-                SocketAction.READY,
-                new ReadyPayload(player.getUser().getId())
+            SocketAction.READY,
+            Map.of("userId", player.getUser().getId())
         );
 
         if (room.isReadyToStartCountdown()) {
@@ -164,12 +143,30 @@ public class GameService {
 
         room.broadcastEvent(
                 SocketAction.UNREADY,
-                new ReadyPayload(player.getUser().getId())
+                Map.of("userId", player.getUser().getId())
         );
 
     }
 
+    public void handleAttack(Room room, Player player, List<String> cardIds){
+        room.playerAttack(player, cardIds);
+        room.broadcastEvent(
+            SocketAction.ATTACK,
+            Map.of("table", room.getTable())
+        );
 
+    }
+
+    public void handlePass(Room room, Player player) {
+        player.setReady(false);
+        room.setStatus(RoomStatus.WAITING);
+
+        room.broadcastEvent(
+                SocketAction.PASS,
+                Map.of("userId", player.getUser().getId())
+        );
+
+    }
 
     private void startGame(Room room) {
 
