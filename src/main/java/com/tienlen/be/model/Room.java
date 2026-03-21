@@ -24,6 +24,7 @@ public class Room {
     private Map<Long, WebSocketSession> sessions = new ConcurrentHashMap<>();
     private Map<Long, Player> players = new ConcurrentHashMap<>();
     private List<String> table = new ArrayList<>();
+    private List<Long> winners = new ArrayList<>();
     
     private ScheduledFuture<?> countdownTask;
     private ScheduledFuture<?> turnTimerTask;
@@ -212,6 +213,8 @@ public class Room {
         for (Player p : players.values()) {
             p.setPassed(false);
         }
+        
+        this.winners.clear();
 
         this.currentTurn = findFirstTurn();
         this.status = RoomStatus.PLAYING;
@@ -246,5 +249,19 @@ public class Room {
             .filter(p -> p.getSeatIndex() == seatIndex)
             .findFirst()
             .orElse(null);
+    }
+
+    public void resetGame() {
+        this.status = RoomStatus.WAITING;
+        this.table.clear();
+        this.currentTurn = 0;
+        cancelTurnTimer();
+        for (Player p : players.values()) {
+            p.setReady(false);
+            p.setPassed(false);
+            if (p.getHandCards() != null) {
+                p.getHandCards().clear();
+            }
+        }
     }
 }

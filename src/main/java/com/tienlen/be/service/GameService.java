@@ -20,7 +20,6 @@ import com.tienlen.be.model.RuleValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
-import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
@@ -28,6 +27,7 @@ import org.springframework.web.socket.WebSocketSession;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -45,7 +45,7 @@ public class GameService {
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
 
     private String getToken(WebSocketSession session) {
-        String query = session.getUri().getQuery();
+        String query = Objects.requireNonNull(session.getUri()).getQuery();
         if (query == null) {
             throw new RuntimeException("Missing query params");
         }
@@ -255,15 +255,36 @@ public class GameService {
         sendSnapshotTo(room, player, SocketAction.SYNC_DATA, snapshot);
 
         if (newHand.isEmpty()) {
-            room.setStatus(RoomStatus.WAITING);
-            room.cancelTurnTimer();
-            for (Player p : room.getPlayers().values()) {
-                p.setReady(false);
+            if (!room.getWinners().contains(player.getUser().getId())) {
+                room.getWinners().add(player.getUser().getId());
             }
-            broadcastEvent(room, SocketAction.GAME_FINISHED, Map.of("winnerId", player.getUser().getId()));
-            broadcastEvent(room, SocketAction.GAME_MESSAGE, new GameMessagePayload(GameMessageType.SUCCESS,
-                    "Người chơi " + player.getUser().getName() + " đã bú đẫm!"));
-            return;
+
+            long remainingPlayers = room.getPlayers().values().stream()
+                    .filter(p -> p.getHandCards() != null && !p.getHandCards().isEmpty())
+                    .count();
+
+            if (remainingPlayers <= 1) {
+                Player lastPlayer = room.getPlayers().values().stream()
+                        .filter(p -> p.getHandCards() != null && !p.getHandCards().isEmpty())
+                        .findFirst()
+                        .orElse(null);
+
+                if (lastPlayer != null && !room.getWinners().contains(lastPlayer.getUser().getId())) {
+                    room.getWinners().add(lastPlayer.getUser().getId());
+                }
+
+                List<Long> finalWinners = new java.util.ArrayList<>(room.getWinners());
+
+                broadcastEvent(room, SocketAction.GAME_FINISHED, Map.of("winners", finalWinners));
+
+                room.resetGame();
+
+                for (Player p : room.getPlayers().values()) {
+                    RoomStateResponse snap = RoomStateResponse.from(room, PlayerResponse.from(p, true));
+                    sendSnapshotTo(room, p, SocketAction.SYNC_DATA, snap);
+                }
+                return;
+            }
         }
 
         synchronized (room) {
