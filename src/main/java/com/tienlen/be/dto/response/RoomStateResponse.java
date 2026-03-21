@@ -1,12 +1,11 @@
 package com.tienlen.be.dto.response;
 
-import com.tienlen.be.model.Card;
+import java.util.List;
+
 import com.tienlen.be.model.Room;
 import com.tienlen.be.model.RoomStatus;
-import lombok.Data;
 
-import java.util.List;
-import java.util.Map;
+import lombok.Data;
 
 @Data
 public class RoomStateResponse {

@@ -19,4 +19,5 @@ public enum SocketAction {
     CHAT,
 
     SYNC_DATA,
+    GAME_MESSAGE,
 }

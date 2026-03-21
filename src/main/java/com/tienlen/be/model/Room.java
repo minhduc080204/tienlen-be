@@ -1,15 +1,8 @@
 package com.tienlen.be.model;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.tienlen.be.dto.request.SocketAction;
-import com.tienlen.be.dto.response.PlayerResponse;
-import com.tienlen.be.dto.response.RoomStateResponse;
-import com.tienlen.be.dto.response.SocketResponse;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 
 import java.security.SecureRandom;
@@ -31,12 +24,9 @@ public class Room {
     private Map<Long, WebSocketSession> sessions = new ConcurrentHashMap<>();
     private Map<Long, Player> players = new ConcurrentHashMap<>();
     private List<String> table = new ArrayList<>();
-    private final ObjectMapper mapper = new ObjectMapper();
+    
     private ScheduledFuture<?> countdownTask;
     private ScheduledFuture<?> turnTimerTask;
-
-    private final ScheduledExecutorService scheduler =
-            Executors.newSingleThreadScheduledExecutor();
 
     private int roomId;
     private int currentTurn;
@@ -52,6 +42,7 @@ public class Room {
 
     public void shutdown(){
         cancelTurnTimer();
+        cancelCountdown();
         sessions.clear();
     }
 
@@ -64,16 +55,12 @@ public class Room {
     }
 
     public boolean removePlayerByUserId(Long userId) {
-
         Player removedPlayer = players.remove(userId);
-
         if (removedPlayer == null) {
             return false;
         }
 
-        // remove session
         WebSocketSession session = sessions.remove(userId);
-
         if (session != null && session.isOpen()) {
             try {
                 session.close();
@@ -83,12 +70,6 @@ public class Room {
         }
 
         log.info("User {} left room {}", userId, roomId);
-
-        // 🔥 broadcast cho người còn lại
-        broadcastEvent(
-                SocketAction.LEFT_ROOM,
-                Map.of("userId", userId)
-        );
 
         if (players.isEmpty()) {
             log.info("Room {} is empty", roomId);
@@ -113,14 +94,12 @@ public class Room {
         List<Player> playerList = new ArrayList<>(players.values());
         for (int i = 0; i < 4; i++) {
             boolean taken = false;
-
             for (Player player : playerList) {
                 if (player.getSeatIndex() == i) {
                     taken = true;
                     break;
                 }
             }
-
             if (!taken) {
                 return i;
             }
@@ -134,6 +113,13 @@ public class Room {
             countdownTask=null;
         }
     }
+    
+    public void cancelTurnTimer() {
+        if (turnTimerTask != null && !turnTimerTask.isDone()) {
+            turnTimerTask.cancel(false);
+            turnTimerTask = null;
+        }
+    }
 
     public boolean isReadyToStartCountdown() {
         boolean allReady = players.values()
@@ -143,16 +129,14 @@ public class Room {
         return allReady && players.size() >= 2;
     }
 
-    public List<Card> createDeck() {
+    private List<Card> createDeck() {
         List<Card> deck = new ArrayList<>();
-
         // rank: 3 → 15 (15 = 2)
         for (int rank = 3; rank <= 15; rank++) {
             for (int suit = 1; suit <= 4; suit++) {
                 deck.add(new Card(rank, suit));
             }
         }
-
         return deck;
     }
 
@@ -161,20 +145,15 @@ public class Room {
     }
 
     private void dealCards(List<Card> deck) {
-
         List<Player> playerList = new ArrayList<>(players.values());
-
         int playerCount = playerList.size();
         int cardsPerPlayer = 13;
 
         for (int i = 0; i < playerCount; i++) {
-
             List<Card> hand = new ArrayList<>();
-
             for (int j = 0; j < cardsPerPlayer; j++) {
                 hand.add(deck.get(i * cardsPerPlayer + j));
             }
-
             // sort bài trước khi đưa cho player
             hand.sort(Comparator
                     .comparingInt(Card::getRank)
@@ -185,7 +164,6 @@ public class Room {
     }
 
     private int findFirstTurn() {
-
         List<Player> playerList = new ArrayList<>(players.values());
 
         // 1️⃣ Ưu tiên người có 3♣
@@ -208,216 +186,65 @@ public class Room {
                     continue;
                 }
 
-                if (smallestCard == null
-                        || isSmaller(card, smallestCard)) {
-
+                if (smallestCard == null || isSmaller(card, smallestCard)) {
                     smallestCard = card;
                     firstTurnIndex = p.getSeatIndex();
                 }
             }
         }
-
         return firstTurnIndex;
     }
 
     private boolean isSmaller(Card a, Card b) {
-
         // so rank trước
         if (a.getRank() != b.getRank()) {
             return a.getRank() < b.getRank();
         }
-
         // cùng rank → so suit
         return a.getSuit() < b.getSuit();
     }
 
-    public synchronized void startGame() {
-
-        if (status != RoomStatus.READY) {
-            return;
-        }
-
+    public synchronized void prepareGame() {
         List<Card> deck = createDeck();
-
         shuffleDeck(deck);
-
         dealCards(deck);
+
+        for (Player p : players.values()) {
+            p.setPassed(false);
+        }
 
         this.currentTurn = findFirstTurn();
         this.status = RoomStatus.PLAYING;
-
-        // Gửi bài riêng cho từng player
-        List<Player> playerList = new ArrayList<>(players.values());
-
-        for (int i = 0; i < playerList.size(); i++) {
-            Player p = playerList.get(i);
-            RoomStateResponse snapshot = RoomStateResponse.from(this, PlayerResponse.from(p, true));
-            sendSnapshotTo(p, SocketAction.SYNC_DATA, snapshot);
-        }
-        startTurn();
     }
-
-    private void startTurn() {
-        cancelTurnTimer(); // đảm bảo không còn timer cũ
-        log.info("CURRENT TURN IS: {}", currentTurn);
-
-//        Player currentPlayer = getPlayerBySeatIndex(currentTurn);
-//
-//        if (currentPlayer==null){
-//            throw new RuntimeException("currentPlayer is null");
-//        }
-
-//        List<Integer> allowedCardIds =
-//                calculateAllowedCards(currentPlayer);
-
-        // Gửi event bắt đầu lượt
-        broadcastEvent(
-                SocketAction.NEXT_TURN,
-                Map.of(
-                    "currentTurn", currentTurn,
-//                    "allowedCardIds", allowedCardIds,
-                    "duration", TIME_OF_TURN
-                )
-        );
-
-        scheduleNextTurn();
-    }
-
-    private void scheduleNextTurn() {
-        turnTimerTask = scheduler.schedule(() -> {
-            if(status!=RoomStatus.PLAYING) return;
-            try {
-                int next;
-
-                synchronized (Room.this) {
-                    next = findNextTurn();
-                    currentTurn = next;
-                }
-
-                // Dispatch sang thread khác nếu có executor riêng
-                startTurn();
-
-            } catch (Exception e) {
-                log.error("Turn timer crashed", e);
-            }
-        }, TIME_OF_TURN, TimeUnit.SECONDS);
-    }
-
-//    private List<Integer> calculateAllowedCards(Player player) {
-//
-//        List<Card> hand = player.getHandCards();
-//
-//        if (lastPlayedCards.isEmpty()) {
-//            return hand.stream()
-//                .map(Card::getId) // giả sử Card có id
-//                .toList();
-//        }
-//
-//        // TODO: validate theo luật Tiến Lên
-//        return hand.stream()
-//            .filter(card -> isValid(card))
-//            .map(Card::getId)
-//            .toList();
-//    }
-
 
     public int findNextTurn() {
         List<Player> playerList = new ArrayList<>(players.values());
 
         Set<Integer> activeSeats = playerList.stream()
+                .filter(p -> !p.isPassed() && !p.getHandCards().isEmpty())
                 .map(Player::getSeatIndex)
                 .collect(Collectors.toSet());
+
+        if (activeSeats.isEmpty()) {
+            return currentTurn;
+        }
 
         int nextSeat = currentTurn;
 
         for (int i = 0; i < 4; i++) {
             nextSeat = (nextSeat + 1) % 4;
-
             if (activeSeats.contains(nextSeat)) {
                 return nextSeat;
             }
         }
-
-        throw new IllegalStateException("No next turn found");
+        return currentTurn;
     }
 
-    public void playerAttack(Player player, List<String> cardIds){
-        this.table=cardIds;
-//        players.get(player.getUser().getId()).
-        startTurn();
-
-    }
-
-    private Player getPlayerBySeatIndex(int seatIndex) {
+    public Player getPlayerBySeatIndex(int seatIndex) {
         return players.values()
             .stream()
             .filter(p -> p.getSeatIndex() == seatIndex)
             .findFirst()
             .orElse(null);
     }
-
-    private void cancelTurnTimer() {
-        if (turnTimerTask != null && !turnTimerTask.isDone()) {
-            turnTimerTask.cancel(false);
-        }
-        turnTimerTask = null;
-    }
-
-    private String toJson(Object object) {
-        try {
-            return mapper.writeValueAsString(object);
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException("JSON parse error", e);
-        }
-    }
-
-    private void send(WebSocketSession session, String message) {
-        try {
-            if (session == null || !session.isOpen()) {
-                return;
-            }
-
-            session.sendMessage(new TextMessage(message));
-
-        } catch (Exception e) {
-            log.warn("Send failed, removing closed session");
-        }
-    }
-
-    public void broadcastEvent(SocketAction action, Object payload) {
-
-        SocketResponse<Object> response =
-                new SocketResponse<>(
-                        action,
-                        payload,
-                        System.currentTimeMillis()
-                );
-
-        String message = toJson(response);
-
-        for (WebSocketSession session : sessions.values()) {
-            send(session, message);
-        }
-    }
-
-    public void sendSnapshotTo(Player player,
-                               SocketAction action,
-                               Object payload) {
-
-        WebSocketSession session = sessions.get(player.getUser().getId());
-
-        if (session == null || !session.isOpen()) {
-            return;
-        }
-
-        SocketResponse<Object> response =
-                new SocketResponse<>(
-                        action,
-                        payload,
-                        System.currentTimeMillis()
-                );
-
-        send(session, toJson(response));
-    }
-
 }

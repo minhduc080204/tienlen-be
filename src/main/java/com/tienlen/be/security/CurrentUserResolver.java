@@ -1,6 +1,7 @@
 package com.tienlen.be.security;
 
 import org.springframework.core.MethodParameter;
+import org.springframework.lang.Nullable;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.bind.support.WebDataBinderFactory;
@@ -19,10 +20,9 @@ public class CurrentUserResolver implements HandlerMethodArgumentResolver {
     @Override
     public Object resolveArgument(
             MethodParameter parameter,
-            ModelAndViewContainer mavContainer,
+            @Nullable ModelAndViewContainer mavContainer,
             NativeWebRequest webRequest,
-            WebDataBinderFactory binderFactory
-    ) {
+            @Nullable WebDataBinderFactory binderFactory) {
         return SecurityContextHolder.getContext()
                 .getAuthentication()
                 .getPrincipal();
