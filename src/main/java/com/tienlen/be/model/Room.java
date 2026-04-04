@@ -18,37 +18,38 @@ public class Room {
     public static int MAX_PLAYERS = 4;
     public static int TIME_OF_READY = 5;
     public static int TIME_OF_TURN = 15;
-    private static final AtomicInteger ROOM_ID_GENERATOR =
-            new AtomicInteger(10000);
+    private static final AtomicInteger ROOM_ID_GENERATOR = new AtomicInteger(10000);
 
     private Map<Long, WebSocketSession> sessions = new ConcurrentHashMap<>();
     private Map<Long, Player> players = new ConcurrentHashMap<>();
     private List<String> table = new ArrayList<>();
     private List<Long> winners = new ArrayList<>();
-    
+
     private ScheduledFuture<?> countdownTask;
     private ScheduledFuture<?> turnTimerTask;
 
     private int roomId;
     private int currentTurn;
+    private int startTurn;
     private long betToken;
     private RoomStatus status;
 
-    public Room (long betToken) {
+    public Room(long betToken) {
         this.roomId = ROOM_ID_GENERATOR.getAndIncrement();
         this.status = RoomStatus.WAITING;
-        this.currentTurn=0;
+        this.currentTurn = 0;
+        this.startTurn = 0;
         this.betToken = betToken;
     }
 
-    public void shutdown(){
+    public void shutdown() {
         cancelTurnTimer();
         cancelCountdown();
         sessions.clear();
     }
 
     public void addPlayer(Player player, WebSocketSession session) {
-        if(isFull()){
+        if (isFull()) {
             throw new RuntimeException("Room full");
         }
         players.put(player.getUser().getId(), player);
@@ -79,12 +80,12 @@ public class Room {
         return false;
     }
 
-    public boolean isFull (){
-        return players.size()>= MAX_PLAYERS;
+    public boolean isFull() {
+        return players.size() >= MAX_PLAYERS;
     }
 
-    public boolean isEnoughToken (long token){
-        return token>=this.betToken;
+    public boolean isEnoughToken(long token) {
+        return token >= this.betToken;
     }
 
     public int getNewSeatIndex() {
@@ -111,10 +112,10 @@ public class Room {
     public void cancelCountdown() {
         if (countdownTask != null && !countdownTask.isDone()) {
             countdownTask.cancel(true);
-            countdownTask=null;
+            countdownTask = null;
         }
     }
-    
+
     public void cancelTurnTimer() {
         if (turnTimerTask != null && !turnTimerTask.isDone()) {
             turnTimerTask.cancel(false);
@@ -168,7 +169,7 @@ public class Room {
         List<Player> playerList = new ArrayList<>(players.values());
 
         // 1️⃣ Ưu tiên người có 3♣
-        for (Player p:playerList) {
+        for (Player p : playerList) {
             for (Card card : p.getHandCards()) {
                 if (card.getRank() == 3 && card.getSuit() == 2) {
                     return p.getSeatIndex();
@@ -180,7 +181,7 @@ public class Room {
         int firstTurnIndex = 0;
         Card smallestCard = null;
 
-        for (Player p:playerList) {
+        for (Player p : playerList) {
             for (Card card : p.getHandCards()) {
                 // bỏ qua 3♠
                 if (card.getRank() == 3 && card.getSuit() == 1) {
@@ -213,10 +214,11 @@ public class Room {
         for (Player p : players.values()) {
             p.setPassed(false);
         }
-        
+
         this.winners.clear();
 
         this.currentTurn = findFirstTurn();
+        this.startTurn = this.currentTurn;
         this.status = RoomStatus.PLAYING;
     }
 
@@ -245,10 +247,10 @@ public class Room {
 
     public Player getPlayerBySeatIndex(int seatIndex) {
         return players.values()
-            .stream()
-            .filter(p -> p.getSeatIndex() == seatIndex)
-            .findFirst()
-            .orElse(null);
+                .stream()
+                .filter(p -> p.getSeatIndex() == seatIndex)
+                .findFirst()
+                .orElse(null);
     }
 
     public void resetGame() {

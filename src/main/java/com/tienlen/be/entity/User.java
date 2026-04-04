@@ -23,6 +23,9 @@ public class User {
     @Column(nullable = false)
     private String password;
 
+    @Column(nullable = true)
+    private String avatarUrl;
+
     @Column(nullable = false, columnDefinition = "BIGINT DEFAULT 1000")
     private long tokenBalance;
 

@@ -5,7 +5,7 @@ import lombok.Data;
 
 @Data
 @AllArgsConstructor
-public class QuickJoinResponse {
+public class JoinRoomResponse {
     private int roomId;
     private String wsUrl;
 }

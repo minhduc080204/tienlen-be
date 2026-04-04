@@ -22,11 +22,9 @@ public class RoomService {
         UserResponse user = getUserResponseByUserId(userId);
 
         return rooms.values().stream()
-                .filter(r ->
-                        !r.isFull() &&
+                .filter(r -> !r.isFull() &&
                         r.getStatus() == RoomStatus.WAITING &&
-                        r.isEnoughToken(user.getTokenBalance())
-                )
+                        r.isEnoughToken(user.getTokenBalance()))
                 .findFirst();
     }
 
@@ -38,7 +36,7 @@ public class RoomService {
     public Room createRoom(Long userId, long betToken) {
         UserResponse user = getUserResponseByUserId(userId);
 
-        if(user.getTokenBalance()<betToken){
+        if (user.getTokenBalance() < betToken) {
             throw new BadRequestException("Không đủ token");
         }
 
@@ -48,22 +46,29 @@ public class RoomService {
         return room;
     }
 
+    public Room findRoomByRoomId(int roomId) {
+        Room room = rooms.get(roomId);
+        if (room == null) {
+            throw new BadRequestException("Không tìm thấy phòng");
+        }
+        return room;
+    }
+
     public Room getRoom(int roomId) {
         return rooms.get(roomId);
     }
 
-    public int getRoomSize(){
+    public int getRoomSize() {
         System.out.println(rooms);
         return rooms.size();
     }
 
-    public void deleteRoom(int roomId){
+    public void deleteRoom(int roomId) {
         Room room = rooms.remove(roomId);
         room.shutdown();
     }
 
-
-    private UserResponse getUserResponseByUserId(long userId){
+    private UserResponse getUserResponseByUserId(long userId) {
         return new UserResponse(userService.getByUserId(userId));
     }
 }

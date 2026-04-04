@@ -9,14 +9,16 @@ import lombok.Data;
 public class UserResponse {
     private Long id;
     private String name;
-    private String avatar;
+    private String avatarUrl;
     private long tokenBalance;
 
-    public UserResponse(){}
+    public UserResponse() {
+    }
 
-    public UserResponse (User user) {
+    public UserResponse(User user) {
         this.id = user.getId();
         this.name = user.getName();
         this.tokenBalance = user.getTokenBalance();
+        this.avatarUrl = user.getAvatarUrl();
     }
 }

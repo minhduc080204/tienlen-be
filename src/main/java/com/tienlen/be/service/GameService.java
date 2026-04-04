@@ -187,7 +187,13 @@ public class GameService {
 
     private Card parseCard(String idStr) {
         int id = Integer.parseInt(idStr);
-        return new Card(id / 10, id % 10);
+        int rankValue = id / 4; // 0 → 12
+        int suitValue = id % 4; // 0 → 3
+
+        int rank = rankValue + 3; // 3 → 15
+        int suit = suitValue + 1; // 1 → 4
+
+        return new Card(rank, suit);
     }
 
     private boolean isValidPlay(List<String> tableIds, List<String> playIds) {
@@ -302,6 +308,10 @@ public class GameService {
         if (player == null || room.getCurrentTurn() != player.getSeatIndex()) {
             return;
         }
+
+        // if (room.getCurrentTurn() == room.getStartTurn()) {
+        // return;
+        // }
 
         player.setPassed(true);
         broadcastEvent(room, SocketAction.PASS, Map.of("userId", player.getUser().getId()));
