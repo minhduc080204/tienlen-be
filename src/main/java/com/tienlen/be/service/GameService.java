@@ -187,13 +187,7 @@ public class GameService {
 
     private Card parseCard(String idStr) {
         int id = Integer.parseInt(idStr);
-        int rankValue = id / 4; // 0 → 12
-        int suitValue = id % 4; // 0 → 3
-
-        int rank = rankValue + 3; // 3 → 15
-        int suit = suitValue + 1; // 1 → 4
-
-        return new Card(rank, suit);
+        return new Card(id / 10, id % 10);
     }
 
     private boolean isValidPlay(List<String> tableIds, List<String> playIds) {

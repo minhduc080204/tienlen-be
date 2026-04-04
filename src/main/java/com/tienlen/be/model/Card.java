@@ -15,7 +15,6 @@ public class Card {
     public Card(int rank, int suit) {
         this.rank = rank;
         this.suit = suit;
-        // this.id = rank*10+suit;
-        this.id = (rank - 3) * 4 + (suit - 1);
+        this.id = rank*10+suit;
     }
 }
