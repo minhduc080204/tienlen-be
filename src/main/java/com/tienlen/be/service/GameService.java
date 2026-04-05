@@ -107,36 +107,28 @@ public class GameService {
                 room.setStatus(RoomStatus.WAITING);
                 room.cancelTurnTimer();
                 room.getTable().clear();
+                room.setLastAttackerSeatIndex(-1);
                 for (Player p : room.getPlayers().values()) {
                     p.setReady(false);
                     p.getHandCards().clear();
-                    p.setPassed(false);
+                    p.setOutOfRound(false);
                 }
                 broadcastEvent(room, SocketAction.GAME_FINISHED, Map.of("reason", "Not enough players"));
             } else if (leavingSeat != -1 && room.getCurrentTurn() == leavingSeat) {
                 // The player who left was the current turn
                 room.cancelTurnTimer();
                 synchronized (room) {
-                    long unpassedCount = room.getPlayers().values().stream()
-                            .filter(p -> !p.isPassed())
-                            .count();
-
-                    if (unpassedCount <= 1) {
-                        Player trickWinner = room.getPlayers().values().stream()
-                                .filter(p -> !p.isPassed())
-                                .findFirst()
-                                .orElse(room.getPlayers().values().iterator().next());
-
-                        room.getTable().clear();
-                        for (Player p : room.getPlayers().values()) {
-                            p.setPassed(false);
+                    if (room.getActivePlayersInRoundCount() <= 1) {
+                        int winnerSeat = room.getLastAttackerSeatIndex();
+                        if (winnerSeat == -1 || winnerSeat == leavingSeat) {
+                            // If leaving player was the last attacker, find someone else who hasn't out_of_round
+                            winnerSeat = room.getPlayers().values().stream()
+                                    .filter(p -> !p.isOutOfRound())
+                                    .map(Player::getSeatIndex)
+                                    .findFirst()
+                                    .orElse(room.getPlayers().values().iterator().next().getSeatIndex());
                         }
-
-                        room.setCurrentTurn(trickWinner.getSeatIndex());
-                        if (trickWinner.getHandCards().isEmpty()) {
-                            room.setCurrentTurn(room.findNextTurn());
-                        }
-                        broadcastEvent(room, SocketAction.ATTACK, Map.of("table", room.getTable()));
+                        performRoundReset(room, winnerSeat);
                     } else {
                         room.setCurrentTurn(room.findNextTurn());
                     }
@@ -245,6 +237,7 @@ public class GameService {
         player.setHandCards(newHand);
 
         room.setTable(cardIds);
+        room.setLastAttackerSeatIndex(player.getSeatIndex());
 
         broadcastEvent(room, SocketAction.ATTACK, Map.of(
                 "userId", player.getUser().getId(),
@@ -288,10 +281,26 @@ public class GameService {
         }
 
         synchronized (room) {
-            room.setCurrentTurn(room.findNextTurn());
+            if (room.getActivePlayersInRoundCount() <= 1) {
+                performRoundReset(room, player.getSeatIndex());
+            } else {
+                room.setCurrentTurn(room.findNextTurn());
+            }
         }
 
         startTurn(room);
+    }
+
+    private void performRoundReset(Room room, int trickWinnerSeatIndex) {
+        room.resetRound();
+        room.setCurrentTurn(trickWinnerSeatIndex);
+
+        Player trickWinner = room.getPlayerBySeatIndex(trickWinnerSeatIndex);
+        if (trickWinner == null || trickWinner.getHandCards().isEmpty()) {
+            room.setCurrentTurn(room.findNextTurn());
+        }
+
+        broadcastEvent(room, SocketAction.ATTACK, Map.of("table", room.getTable()));
     }
 
     public void handlePass(Room room, Player player) {
@@ -303,35 +312,27 @@ public class GameService {
             return;
         }
 
-        // if (room.getCurrentTurn() == room.getStartTurn()) {
-        // return;
-        // }
+        if (room.getTable().isEmpty()) {
+            sendSnapshotTo(
+                    room,
+                    player,
+                    SocketAction.GAME_MESSAGE,
+                    new GameMessagePayload(GameMessageType.ERROR, "Bạn không thể bỏ lượt khi bắt đầu vòng mới"));
+            return;
+        }
 
-        player.setPassed(true);
+        player.setOutOfRound(true);
         broadcastEvent(room, SocketAction.PASS, Map.of("userId", player.getUser().getId()));
 
         synchronized (room) {
-            long unpassedCount = room.getPlayers().values().stream()
-                    .filter(p -> !p.isPassed())
-                    .count();
-
-            if (unpassedCount <= 1) {
-                Player trickWinner = room.getPlayers().values().stream()
-                        .filter(p -> !p.isPassed())
-                        .findFirst()
-                        .orElse(player);
-
-                room.getTable().clear();
-                for (Player p : room.getPlayers().values()) {
-                    p.setPassed(false);
+            if (room.getActivePlayersInRoundCount() <= 1) {
+                int trickWinnerSeat = room.getLastAttackerSeatIndex();
+                if (trickWinnerSeat == -1) {
+                    // This happens if someone passes on an empty table (shouldn't happen in rules)
+                    // or if the first player passes.
+                    trickWinnerSeat = room.findNextTurn();
                 }
-
-                room.setCurrentTurn(trickWinner.getSeatIndex());
-                if (trickWinner.getHandCards().isEmpty()) {
-                    room.setCurrentTurn(room.findNextTurn());
-                }
-
-                broadcastEvent(room, SocketAction.ATTACK, Map.of("table", room.getTable()));
+                performRoundReset(room, trickWinnerSeat);
             } else {
                 room.setCurrentTurn(room.findNextTurn());
             }

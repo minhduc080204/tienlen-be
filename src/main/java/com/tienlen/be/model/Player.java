@@ -15,13 +15,13 @@ public class Player {
     private List<Card> handCards = new CopyOnWriteArrayList<>();
     private boolean isBot;
     private boolean isReady;
-    private boolean isPassed;
+    private boolean outOfRound;
 
     public Player (UserResponse user, int seatIndex) {
         this.user = user;
         this.isBot= false;
         this.isReady=false;
-        this.isPassed=false;
+        this.outOfRound=false;
         this.seatIndex = seatIndex;
     }
 }

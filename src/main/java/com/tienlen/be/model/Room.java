@@ -31,6 +31,7 @@ public class Room {
     private int roomId;
     private int currentTurn;
     private int startTurn;
+    private int lastAttackerSeatIndex = -1;
     private long betToken;
     private RoomStatus status;
 
@@ -39,6 +40,7 @@ public class Room {
         this.status = RoomStatus.WAITING;
         this.currentTurn = 0;
         this.startTurn = 0;
+        this.lastAttackerSeatIndex = -1;
         this.betToken = betToken;
     }
 
@@ -46,6 +48,20 @@ public class Room {
         cancelTurnTimer();
         cancelCountdown();
         sessions.clear();
+    }
+
+    public void resetRound() {
+        this.table.clear();
+        this.lastAttackerSeatIndex = -1;
+        for (Player p : players.values()) {
+            p.setOutOfRound(false);
+        }
+    }
+
+    public long getActivePlayersInRoundCount() {
+        return players.values().stream()
+                .filter(p -> !p.isOutOfRound() && (!p.getHandCards().isEmpty() || p.getSeatIndex() == lastAttackerSeatIndex))
+                .count();
     }
 
     public void addPlayer(Player player, WebSocketSession session) {
@@ -212,10 +228,12 @@ public class Room {
         dealCards(deck);
 
         for (Player p : players.values()) {
-            p.setPassed(false);
+            p.setOutOfRound(false);
         }
 
         this.winners.clear();
+        this.table.clear();
+        this.lastAttackerSeatIndex = -1;
 
         this.currentTurn = findFirstTurn();
         this.startTurn = this.currentTurn;
@@ -226,7 +244,7 @@ public class Room {
         List<Player> playerList = new ArrayList<>(players.values());
 
         Set<Integer> activeSeats = playerList.stream()
-                .filter(p -> !p.isPassed() && !p.getHandCards().isEmpty())
+                .filter(p -> !p.isOutOfRound() && !p.getHandCards().isEmpty())
                 .map(Player::getSeatIndex)
                 .collect(Collectors.toSet());
 
@@ -255,12 +273,13 @@ public class Room {
 
     public void resetGame() {
         this.status = RoomStatus.WAITING;
-        this.table.clear();
+        // this.table.clear();
         this.currentTurn = 0;
+        this.lastAttackerSeatIndex = -1;
         cancelTurnTimer();
         for (Player p : players.values()) {
             p.setReady(false);
-            p.setPassed(false);
+            p.setOutOfRound(false);
             if (p.getHandCards() != null) {
                 p.getHandCards().clear();
             }

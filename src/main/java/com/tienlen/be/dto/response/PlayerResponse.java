@@ -13,6 +13,7 @@ public class PlayerResponse {
     private UserResponse user;
     private boolean isBot;
     private boolean isReady;
+    private boolean outOfRound;
     private int handSize;
     private List<Card> handCards = new CopyOnWriteArrayList<>();
 
@@ -22,6 +23,7 @@ public class PlayerResponse {
         pl.user = player.getUser();
         pl.isBot = player.isBot();
         pl.isReady = player.isReady();
+        pl.outOfRound = player.isOutOfRound();
         pl.handSize = player.getHandCards().size();
 
         if(isMe){
