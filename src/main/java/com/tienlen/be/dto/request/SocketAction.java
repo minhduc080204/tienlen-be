@@ -3,6 +3,7 @@ package com.tienlen.be.dto.request;
 public enum SocketAction {
     JOIN_ROOM,
     LEFT_ROOM,
+    KICKED,
 
     READY,
     UNREADY,

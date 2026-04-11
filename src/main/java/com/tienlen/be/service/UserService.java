@@ -6,6 +6,8 @@ import com.tienlen.be.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 @Service
 @RequiredArgsConstructor
 public class UserService {
@@ -21,5 +23,9 @@ public class UserService {
                 .orElseThrow(() ->
                         new BadRequestException("Không tìm thấy account")
                 );
+    }
+
+    public List<User> saveAll(List<User> users) {
+        return userRepository.saveAll(users);
     }
 }

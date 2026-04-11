@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
 public class Room {
     public static int MAX_PLAYERS = 4;
     public static int TIME_OF_READY = 5;
-    public static int TIME_OF_TURN = 15;
+    public static int TIME_OF_TURN = 20;
     private static final AtomicInteger ROOM_ID_GENERATOR = new AtomicInteger(10000);
 
     private Map<Long, WebSocketSession> sessions = new ConcurrentHashMap<>();
@@ -33,6 +33,9 @@ public class Room {
     private int startTurn;
     private int lastAttackerSeatIndex = -1;
     private long betToken;
+    private long currentPot;
+    private List<Long> roundParticipantIds = new ArrayList<>();
+    private List<Long> roundLeaverIds = new ArrayList<>();
     private RoomStatus status;
 
     public Room(long betToken) {
@@ -42,6 +45,7 @@ public class Room {
         this.startTurn = 0;
         this.lastAttackerSeatIndex = -1;
         this.betToken = betToken;
+        this.currentPot = 0;
     }
 
     public void shutdown() {
@@ -276,6 +280,9 @@ public class Room {
         // this.table.clear();
         this.currentTurn = 0;
         this.lastAttackerSeatIndex = -1;
+        this.currentPot = 0;
+        this.roundParticipantIds.clear();
+        this.roundLeaverIds.clear();
         cancelTurnTimer();
         for (Player p : players.values()) {
             p.setReady(false);

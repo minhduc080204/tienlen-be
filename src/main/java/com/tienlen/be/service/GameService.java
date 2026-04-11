@@ -10,6 +10,8 @@ import com.tienlen.be.dto.response.PlayerResponse;
 import com.tienlen.be.dto.response.RoomStateResponse;
 import com.tienlen.be.dto.response.SocketResponse;
 import com.tienlen.be.dto.response.UserResponse;
+import com.tienlen.be.entity.User;
+import com.tienlen.be.exception.BadRequestException;
 import com.tienlen.be.model.Player;
 import com.tienlen.be.model.Room;
 import com.tienlen.be.model.RoomStatus;
@@ -25,6 +27,7 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -93,27 +96,20 @@ public class GameService {
 
         Player leavingPlayer = room.getPlayers().get(user.getId());
         int leavingSeat = leavingPlayer != null ? leavingPlayer.getSeatIndex() : -1;
+        boolean wasPlaying = room.getStatus() == RoomStatus.PLAYING;
 
         boolean isEmpty = room.removePlayerByUserId(user.getId());
         broadcastEvent(room, SocketAction.LEFT_ROOM, Map.of("userId", user.getId()));
 
-        if (isEmpty) {
-            roomService.deleteRoom(room.getRoomId());
-            return;
-        }
+        if (wasPlaying) {
+            if (room.getRoundParticipantIds().contains(user.getId())
+                    && !room.getWinners().contains(user.getId())
+                    && !room.getRoundLeaverIds().contains(user.getId())) {
+                room.getRoundLeaverIds().add(user.getId());
+            }
 
-        if (room.getStatus() == RoomStatus.PLAYING) {
             if (room.getPlayers().size() < 2) {
-                room.setStatus(RoomStatus.WAITING);
-                room.cancelTurnTimer();
-                room.getTable().clear();
-                room.setLastAttackerSeatIndex(-1);
-                for (Player p : room.getPlayers().values()) {
-                    p.setReady(false);
-                    p.getHandCards().clear();
-                    p.setOutOfRound(false);
-                }
-                broadcastEvent(room, SocketAction.GAME_FINISHED, Map.of("reason", "Not enough players"));
+                finishGame(room);
             } else if (leavingSeat != -1 && room.getCurrentTurn() == leavingSeat) {
                 // The player who left was the current turn
                 room.cancelTurnTimer();
@@ -135,6 +131,10 @@ public class GameService {
                 }
                 startTurn(room);
             }
+        }
+
+        if (isEmpty) {
+            roomService.deleteRoom(room.getRoomId());
         }
     }
 
@@ -267,15 +267,7 @@ public class GameService {
                 }
 
                 List<Long> finalWinners = new java.util.ArrayList<>(room.getWinners());
-
-                broadcastEvent(room, SocketAction.GAME_FINISHED, Map.of("winners", finalWinners));
-
-                room.resetGame();
-
-                for (Player p : room.getPlayers().values()) {
-                    RoomStateResponse snap = RoomStateResponse.from(room, PlayerResponse.from(p, true));
-                    sendSnapshotTo(room, p, SocketAction.SYNC_DATA, snap);
-                }
+                finishGame(room, finalWinners);
                 return;
             }
         }
@@ -346,6 +338,11 @@ public class GameService {
             return;
         }
 
+        if (!collectBetForRound(room)) {
+            room.setStatus(RoomStatus.WAITING);
+            return;
+        }
+
         room.prepareGame();
 
         for (Player p : room.getPlayers().values()) {
@@ -356,6 +353,179 @@ public class GameService {
         broadcastEvent(room, SocketAction.START_GAME, null);
 
         startTurn(room);
+    }
+
+    boolean collectBetForRound(Room room) {
+        long betToken = room.getBetToken();
+        List<Player> participants = new ArrayList<>(room.getPlayers().values());
+        if (participants.size() < 2) {
+            return false;
+        }
+
+        List<User> users = new ArrayList<>();
+        Map<Long, User> userById = new HashMap<>();
+        List<Long> participantIds = new ArrayList<>();
+
+        for (Player player : participants) {
+            Long userId = player.getUser().getId();
+            User user = userService.getByUserId(userId);
+            if (user.getTokenBalance() < betToken) {
+                sendSnapshotTo(
+                        room,
+                        player,
+                        SocketAction.GAME_MESSAGE,
+                        new GameMessagePayload(GameMessageType.ERROR, "Không đủ token để bắt đầu ván"));
+                return false;
+            }
+            users.add(user);
+            userById.put(userId, user);
+            participantIds.add(userId);
+        }
+
+        for (User user : users) {
+            user.setTokenBalance(user.getTokenBalance() - betToken);
+        }
+        userService.saveAll(users);
+
+        for (Player player : participants) {
+            User saved = userById.get(player.getUser().getId());
+            player.getUser().setTokenBalance(saved.getTokenBalance());
+        }
+
+        room.setRoundParticipantIds(participantIds);
+        room.getRoundLeaverIds().clear();
+        room.setCurrentPot(betToken * participantIds.size());
+        return true;
+    }
+
+    void settleRoundPot(Room room, List<Long> finalWinners) {
+        if (room.getCurrentPot() <= 0 || finalWinners == null || finalWinners.isEmpty()) {
+            return;
+        }
+
+        int participantCount = room.getRoundParticipantIds().size();
+        if (participantCount < 2) {
+            return;
+        }
+
+        List<Integer> percentages = getPayoutPercentages(participantCount);
+        List<Long> rankedWinnerIds = finalWinners.stream()
+                .filter(room.getRoundParticipantIds()::contains)
+                .distinct()
+                .toList();
+        if (rankedWinnerIds.isEmpty()) {
+            return;
+        }
+
+        int rankSize = Math.min(percentages.size(), rankedWinnerIds.size());
+        long pot = room.getCurrentPot();
+        long distributed = 0;
+        Map<Long, Long> payoutByUserId = new HashMap<>();
+
+        for (int i = 0; i < rankSize; i++) {
+            long amount = (pot * percentages.get(i)) / 100;
+            if (amount <= 0) {
+                continue;
+            }
+            distributed += amount;
+            payoutByUserId.merge(rankedWinnerIds.get(i), amount, Long::sum);
+        }
+
+        long remainder = pot - distributed;
+        if (remainder > 0) {
+            payoutByUserId.merge(rankedWinnerIds.get(0), remainder, Long::sum);
+        }
+
+        List<User> usersToSave = new ArrayList<>();
+        for (Map.Entry<Long, Long> entry : payoutByUserId.entrySet()) {
+            User user = userService.getByUserId(entry.getKey());
+            user.setTokenBalance(user.getTokenBalance() + entry.getValue());
+            usersToSave.add(user);
+
+            Player player = room.getPlayers().get(entry.getKey());
+            if (player != null) {
+                player.getUser().setTokenBalance(user.getTokenBalance());
+            }
+        }
+
+        if (!usersToSave.isEmpty()) {
+            userService.saveAll(usersToSave);
+        }
+    }
+
+    private List<Integer> getPayoutPercentages(int participantCount) {
+        return switch (participantCount) {
+            case 2 -> List.of(100, 0);
+            case 3 -> List.of(70, 30, 0);
+            case 4 -> List.of(60, 30, 10, 0);
+            default -> throw new BadRequestException("Số lượng người chơi không hợp lệ để chia thưởng");
+        };
+    }
+
+    private void kickPlayersWithInsufficientToken(Room room) {
+        List<Player> kickedPlayers = room.getPlayers().values().stream()
+                .filter(player -> player.getUser().getTokenBalance() < room.getBetToken())
+                .toList();
+
+        for (Player kickedPlayer : kickedPlayers) {
+            sendSnapshotTo(room, kickedPlayer, SocketAction.KICKED, new GameMessagePayload(
+                GameMessageType.ERROR, "Bạn đã bị đá khỏi phòng vì không đủ token"
+            ));
+            handleLeftRoom(room, kickedPlayer.getUser());
+        }
+    }
+
+    private void finishGame(Room room) {
+        finishGame(room, buildFinalRanking(room));
+    }
+
+    private void finishGame(Room room, List<Long> winnersRanking) {
+        List<Long> finalRanking = winnersRanking == null ? buildFinalRanking(room) : winnersRanking;
+        if (finalRanking.size() < room.getRoundParticipantIds().size()) {
+            finalRanking = buildFinalRanking(room);
+        }
+
+        settleRoundPot(room, finalRanking);
+        broadcastEvent(room, SocketAction.GAME_FINISHED, Map.of("winners", finalRanking));
+
+        room.resetGame();
+        kickPlayersWithInsufficientToken(room);
+
+        for (Player p : room.getPlayers().values()) {
+            RoomStateResponse snap = RoomStateResponse.from(room, PlayerResponse.from(p, true));
+            sendSnapshotTo(room, p, SocketAction.SYNC_DATA, snap);
+        }
+    }
+
+    List<Long> buildFinalRanking(Room room) {
+        List<Long> ranking = new ArrayList<>();
+
+        for (Long winnerId : room.getWinners()) {
+            if (!ranking.contains(winnerId)) {
+                ranking.add(winnerId);
+            }
+        }
+
+        for (Player player : room.getPlayers().values()) {
+            Long userId = player.getUser().getId();
+            if (room.getRoundParticipantIds().contains(userId) && !ranking.contains(userId)) {
+                ranking.add(userId);
+            }
+        }
+
+        for (Long leaverId : room.getRoundLeaverIds()) {
+            if (!ranking.contains(leaverId)) {
+                ranking.add(leaverId);
+            }
+        }
+
+        for (Long participantId : room.getRoundParticipantIds()) {
+            if (!ranking.contains(participantId)) {
+                ranking.add(participantId);
+            }
+        }
+
+        return ranking;
     }
 
     private void startTurn(Room room) {
