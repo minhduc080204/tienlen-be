@@ -151,8 +151,8 @@ public class BotRoomService {
             return List.of();
         }
         List<Card> botMove = switch (room.botLevel) {
-            case EASY -> chooseEasyMove(room.botCards, room.table);
-            case MEDIUM -> chooseMediumMove(room.botCards, room.table, room.discardPile);
+            case EASY -> chooseEasyMove(room);
+            case MEDIUM -> chooseMediumMove(room);
             case HARD -> chooseHardMove(room);
         };
         applyMove(room, BOT_SEAT, botMove);
@@ -163,7 +163,7 @@ public class BotRoomService {
         try {
             return callModel(room);
         } catch (RestClientException | IllegalArgumentException ex) {
-            return chooseMediumMove(room.botCards, room.table, room.discardPile);
+            return chooseMediumMove(room);
         }
     }
 
@@ -297,33 +297,421 @@ public class BotRoomService {
         hand.addAll(next);
     }
 
-    private List<Card> chooseEasyMove(List<Card> hand, List<Card> table) {
-        List<Card> sorted = new ArrayList<>(hand);
-        sorted.sort(this::compareCard);
-        if (table == null || table.isEmpty()) {
-            return List.of(sorted.get(0));
-        }
-        return sorted.stream()
-                .map(List::of)
-                .filter(m -> RuleValidator.canBeat(table, m))
-                .findFirst()
-                .orElse(List.of());
-    }
-
-    private List<Card> chooseMediumMove(List<Card> hand, List<Card> table, List<Card> discardPile) {
-        List<List<Card>> candidates = generateCandidates(hand);
+    private List<Card> chooseEasyMove(BotRoomState room) {
+        List<List<Card>> candidates = generateCandidates(room.botCards);
         List<List<Card>> valids = candidates.stream()
-                .filter(m -> isValidMove(table, m))
+                .filter(m -> isValidMove(room.table, m))
                 .toList();
         if (valids.isEmpty()) {
             return List.of();
         }
 
-        boolean defend = table != null && !table.isEmpty() && hand.size() > 4;
-        Comparator<List<Card>> cmp = defend
-                ? Comparator.comparingInt(this::defensiveCost)
-                : Comparator.comparingInt(c -> openingCostWithMemory(c, hand.size(), hand, discardPile));
-        return valids.stream().min(cmp).orElse(List.of());
+        boolean opening = room.table == null || room.table.isEmpty();
+        int userRemain = room.userCards.size();
+        return valids.stream()
+                .max(Comparator.comparingDouble(m ->
+                        easyMoveScore(m, opening, userRemain, room.botCards.size())))
+                .orElse(List.of());
+    }
+
+    private List<Card> chooseMediumMove(BotRoomState room) {
+        List<Card> hand = room.botCards;
+        boolean opening = room.table == null || room.table.isEmpty();
+        List<List<Card>> candidates = generateCandidates(hand);
+        List<List<Card>> valids = candidates.stream()
+                .filter(m -> isValidMove(room.table, m))
+                .toList();
+        if (valids.isEmpty()) {
+            return List.of();
+        }
+        if (opening) {
+            valids = prioritizeConservativeOpening(hand, valids, room.userCards.size(), hand.size());
+        }
+        valids = narrowToCheapestWinning(room.table, valids, room.userCards.size(), hand.size());
+
+        List<Card> unseen = buildUnseenCards(room.botCards, room.discardPile);
+        List<List<Card>> unseenCandidates = generateCandidates(unseen);
+
+        double best = Double.NEGATIVE_INFINITY;
+        List<Card> bestMove = List.of();
+        for (List<Card> move : valids) {
+            double score = mediumExpectedScore(room, move, unseen, unseenCandidates);
+            if (score > best) {
+                best = score;
+                bestMove = move;
+            }
+        }
+        return bestMove;
+    }
+
+    private double easyMoveScore(List<Card> move, boolean opening, int userRemainingCards, int botRemainingCards) {
+        MoveType type = RuleValidator.detectMoveType(move);
+        boolean endgame = botRemainingCards <= 4 || userRemainingCards <= 3;
+        boolean opponentLow = userRemainingCards <= 3;
+
+        double score = aggressiveScore(move, botRemainingCards) * 0.45;
+        if (opening && (type == MoveType.STRAIGHT || type == MoveType.DOUBLE_STRAIGHT)) {
+            score += 90.0;
+        }
+        if (!opening) {
+            score -= defensiveCost(move) * (opponentLow ? 0.4 : 1.1);
+        } else {
+            score -= defensiveCost(move) * (opponentLow ? 0.05 : 0.35);
+        }
+        if (!endgame && (type == MoveType.TWO || type == MoveType.FOUR_OF_KIND || type == MoveType.DOUBLE_STRAIGHT)) {
+            score -= 260.0;
+        }
+        if (!opponentLow) {
+            score -= preserveStrongCardPenalty(move);
+        }
+        if (botRemainingCards - move.size() == 0) {
+            score += 10_000;
+        }
+        return score;
+    }
+
+    private double mediumExpectedScore(
+            BotRoomState room,
+            List<Card> move,
+            List<Card> unseen,
+            List<List<Card>> unseenCandidates
+    ) {
+        List<Card> handAfter = simulateRemainingHand(room.botCards, move);
+        if (handAfter.isEmpty()) {
+            return 100_000.0;
+        }
+
+        MoveType moveType = RuleValidator.detectMoveType(move);
+        int userRemain = room.userCards.size();
+        int botRemainAfter = handAfter.size();
+        boolean opening = room.table == null || room.table.isEmpty();
+
+        double pBeat = opening ? 0.0 : estimateUserCanBeatProbability(
+                move,
+                unseen,
+                unseenCandidates,
+                userRemain,
+                40
+        );
+        double handQuality = evaluateHandAfterMove(handAfter, room.discardPile);
+        double tempoValue = (1.0 - pBeat) * estimateTempoControl(move, moveType, userRemain);
+        double dangerPenalty = pBeat * estimateCounterPunish(moveType, userRemain);
+        double resourcePenalty = strategicResourcePenalty(move, botRemainAfter, userRemain, opening);
+        double openingPenalty = opening
+                ? openingPreservationPenalty(move, room.botCards, userRemain, botRemainAfter)
+                : 0.0;
+        double finisherBonus = (botRemainAfter <= 3 ? 240.0 : 0.0) + (userRemain <= 3 ? 100.0 : 0.0);
+
+        return handQuality + tempoValue - dangerPenalty - resourcePenalty - openingPenalty + finisherBonus;
+    }
+
+    private List<Card> buildUnseenCards(List<Card> botHand, List<Card> discardPile) {
+        Set<Integer> known = new HashSet<>();
+        botHand.forEach(c -> known.add(c.getId()));
+        discardPile.forEach(c -> known.add(c.getId()));
+        return createDeck().stream()
+                .filter(c -> !known.contains(c.getId()))
+                .sorted(this::compareCard)
+                .toList();
+    }
+
+    private List<Card> simulateRemainingHand(List<Card> hand, List<Card> move) {
+        Map<Integer, Integer> need = new HashMap<>();
+        for (Card c : move) {
+            need.merge(c.getId(), 1, Integer::sum);
+        }
+        List<Card> remain = new ArrayList<>();
+        for (Card c : hand) {
+            int count = need.getOrDefault(c.getId(), 0);
+            if (count > 0) {
+                need.put(c.getId(), count - 1);
+            } else {
+                remain.add(c);
+            }
+        }
+        remain.sort(this::compareCard);
+        return remain;
+    }
+
+    private double evaluateHandAfterMove(List<Card> handAfter, List<Card> discardPile) {
+        if (handAfter.isEmpty()) {
+            return 100_000.0;
+        }
+        int estimatedTurns = estimateTurnsToFinish(handAfter);
+        int deadHighCards = (int) handAfter.stream().filter(c -> c.getRank() >= 12).count();
+        int pressure = estimateCounterPressure(
+                List.of(handAfter.get(handAfter.size() - 1)),
+                handAfter,
+                discardPile
+        );
+        return -estimatedTurns * 280.0 - deadHighCards * 40.0 - pressure * 3.0;
+    }
+
+    private int estimateTurnsToFinish(List<Card> hand) {
+        List<Card> remain = new ArrayList<>(hand);
+        int turns = 0;
+        while (!remain.isEmpty()) {
+            List<List<Card>> candidates = generateCandidates(remain);
+            List<Card> best = candidates.stream()
+                    .max(Comparator
+                            .comparingInt((List<Card> c) -> c.size())
+                            .thenComparingInt(c -> comboPriority(RuleValidator.detectMoveType(c))))
+                    .orElse(List.of(remain.get(0)));
+            remain = simulateRemainingHand(remain, best);
+            turns++;
+        }
+        return turns;
+    }
+
+    private int comboPriority(MoveType type) {
+        if (type == null) return 0;
+        return switch (type) {
+            case DOUBLE_STRAIGHT -> 7;
+            case FOUR_OF_KIND -> 6;
+            case STRAIGHT -> 5;
+            case TRIPLE -> 4;
+            case PAIR -> 3;
+            case TWO -> 2;
+            case SINGLE -> 1;
+            default -> 0;
+        };
+    }
+
+    private double estimateUserCanBeatProbability(
+            List<Card> botMove,
+            List<Card> unseen,
+            List<List<Card>> unseenCandidates,
+            int userCardCount,
+            int simulations
+    ) {
+        if (userCardCount <= 0 || unseen.isEmpty()) {
+            return 0.0;
+        }
+
+        // Quick lower/upper bounds from whole unseen space.
+        long allCounters = unseenCandidates.stream()
+                .filter(c -> RuleValidator.canBeat(botMove, c))
+                .count();
+        if (allCounters == 0) {
+            return 0.0;
+        }
+
+        int sampleSize = Math.min(simulations, 80);
+        int beatCount = 0;
+        for (int i = 0; i < sampleSize; i++) {
+            List<Card> sampledUserHand = sampleRandomSubset(unseen, userCardCount);
+            List<List<Card>> userCandidates = generateCandidates(sampledUserHand);
+            boolean canBeat = userCandidates.stream().anyMatch(c -> RuleValidator.canBeat(botMove, c));
+            if (canBeat) {
+                beatCount++;
+            }
+        }
+        return beatCount / (double) sampleSize;
+    }
+
+    private List<Card> sampleRandomSubset(List<Card> cards, int count) {
+        if (count >= cards.size()) {
+            return new ArrayList<>(cards);
+        }
+        List<Card> copy = new ArrayList<>(cards);
+        Collections.shuffle(copy, random);
+        List<Card> subset = new ArrayList<>(copy.subList(0, count));
+        subset.sort(this::compareCard);
+        return subset;
+    }
+
+    private double estimateTempoControl(List<Card> move, MoveType type, int userRemainingCards) {
+        int size = move.size();
+        int power = move.stream().mapToInt(this::cardPower).max().orElse(0);
+        double tempo = size * 35.0 + power * (userRemainingCards <= 3 ? 0.55 : 0.15);
+        if (type == MoveType.STRAIGHT || type == MoveType.DOUBLE_STRAIGHT) {
+            tempo += 120.0;
+        }
+        if (userRemainingCards <= 3) {
+            tempo += 150.0;
+        }
+        return tempo;
+    }
+
+    private double estimateCounterPunish(MoveType moveType, int userRemainingCards) {
+        double base = switch (moveType) {
+            case TWO -> 210.0;
+            case FOUR_OF_KIND, DOUBLE_STRAIGHT -> 260.0;
+            case TRIPLE -> 90.0;
+            case PAIR -> 70.0;
+            case STRAIGHT -> 110.0;
+            default -> 45.0;
+        };
+        if (userRemainingCards <= 4) {
+            base *= 1.25;
+        }
+        return base;
+    }
+
+    private double strategicResourcePenalty(List<Card> move, int botRemainAfter, int userRemain, boolean opening) {
+        MoveType type = RuleValidator.detectMoveType(move);
+        boolean endgame = botRemainAfter <= 4 || userRemain <= 3;
+        if (endgame) {
+            return 0.0;
+        }
+        double penalty = 0.0;
+        if (type == MoveType.TWO) {
+            penalty += 420.0;
+        }
+        if (type == MoveType.FOUR_OF_KIND || type == MoveType.DOUBLE_STRAIGHT) {
+            penalty += 520.0;
+        }
+        if (opening && move.size() == 1 && move.get(0).getRank() >= 13) {
+            penalty += 220.0;
+        }
+        penalty += preserveStrongCardPenalty(move);
+        return penalty;
+    }
+
+    private List<List<Card>> prioritizeConservativeOpening(
+            List<Card> hand,
+            List<List<Card>> valids,
+            int userRemain,
+            int botRemain
+    ) {
+        boolean needFinishFast = userRemain <= 3 || botRemain <= 4;
+        if (needFinishFast) {
+            return valids;
+        }
+
+        List<List<Card>> conservative = valids.stream()
+                .filter(m -> isConservativeOpeningMove(hand, m))
+                .toList();
+        return conservative.isEmpty() ? valids : conservative;
+    }
+
+    private boolean isConservativeOpeningMove(List<Card> hand, List<Card> move) {
+        MoveType type = RuleValidator.detectMoveType(move);
+        if (type == null) {
+            return false;
+        }
+        if (type == MoveType.TWO || type == MoveType.FOUR_OF_KIND || type == MoveType.DOUBLE_STRAIGHT) {
+            return false;
+        }
+
+        int rank = move.get(0).getRank();
+        if (type == MoveType.SINGLE) {
+            if (rank >= 12) {
+                return false;
+            }
+            long sameRankCount = hand.stream().filter(c -> c.getRank() == rank).count();
+            return sameRankCount <= 1; // avoid breaking pair/triple while opening
+        }
+        if (type == MoveType.PAIR && rank >= 13) {
+            return false;
+        }
+        return true;
+    }
+
+    private double openingPreservationPenalty(
+            List<Card> move,
+            List<Card> handBefore,
+            int userRemain,
+            int botRemainAfter
+    ) {
+        boolean endgame = userRemain <= 3 || botRemainAfter <= 4;
+        if (endgame) {
+            return 0.0;
+        }
+
+        MoveType type = RuleValidator.detectMoveType(move);
+        int maxRank = move.stream().mapToInt(Card::getRank).max().orElse(3);
+        double penalty = preserveStrongCardPenalty(move) * 0.9;
+
+        if (type == MoveType.SINGLE) {
+            long sameRankCount = handBefore.stream().filter(c -> c.getRank() == maxRank).count();
+            if (sameRankCount >= 2) {
+                penalty += 220.0; // punish opening by breaking pair/triple
+            }
+        }
+        if (maxRank >= 13) {
+            penalty += (maxRank - 12) * 70.0;
+        }
+        return penalty;
+    }
+
+    private double preserveStrongCardPenalty(List<Card> move) {
+        MoveType type = RuleValidator.detectMoveType(move);
+        int maxRank = move.stream().mapToInt(Card::getRank).max().orElse(3);
+        boolean hasTwo = move.stream().anyMatch(c -> c.getRank() == 15);
+        double penalty = 0.0;
+
+        if (type == MoveType.SINGLE && maxRank >= 13) {
+            penalty += 140.0 + (maxRank - 13) * 35.0;
+        }
+        if (type == MoveType.PAIR && maxRank >= 12) {
+            penalty += 170.0 + (maxRank - 12) * 40.0;
+        }
+        if (hasTwo) {
+            penalty += 260.0;
+        }
+        if (type == MoveType.FOUR_OF_KIND || type == MoveType.DOUBLE_STRAIGHT) {
+            penalty += 320.0;
+        }
+        return penalty;
+    }
+
+    private List<List<Card>> narrowToCheapestWinning(
+            List<Card> table,
+            List<List<Card>> valids,
+            int userRemain,
+            int botRemain
+    ) {
+        boolean opening = table == null || table.isEmpty();
+        boolean needFinishFast = userRemain <= 3 || botRemain <= 4;
+        if (opening || needFinishFast || valids.size() <= 1) {
+            return valids;
+        }
+
+        int minCost = valids.stream().mapToInt(this::defensiveCost).min().orElse(Integer.MAX_VALUE);
+        int margin = userRemain <= 5 ? 20 : 10;
+        return valids.stream()
+                .filter(m -> defensiveCost(m) <= minCost + margin)
+                .toList();
+    }
+
+    List<Integer> debugPickEasyMove(
+            List<Integer> handIds,
+            List<Integer> tableIds,
+            List<Integer> discardIds,
+            int userRemainingCards
+    ) {
+        BotRoomState room = new BotRoomState();
+        room.botCards = handIds.stream().map(this::parseCard).sorted(this::compareCard).collect(Collectors.toList());
+        room.table = tableIds.stream().map(this::parseCard).sorted(this::compareCard).collect(Collectors.toList());
+        room.discardPile = discardIds.stream().map(this::parseCard).collect(Collectors.toList());
+        room.userCards = mockCardsCount(userRemainingCards);
+        return toCardIds(chooseEasyMove(room));
+    }
+
+    List<Integer> debugPickMediumMove(
+            List<Integer> handIds,
+            List<Integer> tableIds,
+            List<Integer> discardIds,
+            int userRemainingCards
+    ) {
+        BotRoomState room = new BotRoomState();
+        room.botCards = handIds.stream().map(this::parseCard).sorted(this::compareCard).collect(Collectors.toList());
+        room.table = tableIds.stream().map(this::parseCard).sorted(this::compareCard).collect(Collectors.toList());
+        room.discardPile = discardIds.stream().map(this::parseCard).collect(Collectors.toList());
+        room.userCards = mockCardsCount(userRemainingCards);
+        return toCardIds(chooseMediumMove(room));
+    }
+
+    private List<Card> mockCardsCount(int count) {
+        if (count < 0 || count > 13) {
+            throw new BadRequestException("Số lá mô phỏng không hợp lệ");
+        }
+        List<Card> cards = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            cards.add(new Card(3 + (i % 13), 1 + (i % 4)));
+        }
+        return cards;
     }
 
     private int defensiveCost(List<Card> move) {
@@ -339,12 +727,6 @@ public class BotRoomService {
             default -> 0;
         };
         return max + penalty;
-    }
-
-    private int openingCostWithMemory(List<Card> move, int handSize, List<Card> hand, List<Card> discardPile) {
-        int aggressive = aggressiveScore(move, handSize);
-        int pressure = estimateCounterPressure(move, hand, discardPile);
-        return -aggressive + pressure * 50;
     }
 
     private int aggressiveScore(List<Card> move, int handSize) {
