@@ -32,10 +32,11 @@ public class SecurityConfig {
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers("/api/room/bot/**").authenticated()
                         .requestMatchers("/api/room/**").permitAll()
                         .requestMatchers("/ws/**").permitAll()
-                        .requestMatchers("/sounds/**").permitAll()
-                        .anyRequest().authenticated())
+                         .requestMatchers("/sounds/**").permitAll()
+                         .anyRequest().authenticated())
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
