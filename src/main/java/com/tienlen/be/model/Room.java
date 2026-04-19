@@ -34,6 +34,7 @@ public class Room {
     private int lastAttackerSeatIndex = -1;
     private long betToken;
     private long currentPot;
+    private java.time.LocalDateTime startTime;
     private List<Long> roundParticipantIds = new ArrayList<>();
     private List<Long> roundLeaverIds = new ArrayList<>();
     private RoomStatus status;

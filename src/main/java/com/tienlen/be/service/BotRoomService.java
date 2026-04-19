@@ -39,6 +39,9 @@ public class BotRoomService {
 
     private final UserService userService;
     private final RestTemplate restTemplate;
+    private final com.tienlen.be.repository.MatchHistoryRepository matchHistoryRepository;
+    private final com.tienlen.be.repository.MatchParticipantRepository matchParticipantRepository;
+    private final com.tienlen.be.repository.TransactionRepository transactionRepository;
     private final SecureRandom random = new SecureRandom();
     private final Map<Long, BotRoomState> activeRoomsByUserId = new ConcurrentHashMap<>();
 
@@ -81,7 +84,15 @@ public class BotRoomService {
     public BotRoomStartResponse start(UserResponse user) {
         BotRoomState room = getRoom(user.getId());
         if (room.started && !room.finished) {
-            throw new ConflictException("Ván này đã bắt đầu");
+            // Nếu ván đang diễn ra, trả về trạng thái hiện tại để user chơi tiếp (reconnect)
+            User entity = userService.getByUserId(user.getId());
+            return new BotRoomStartResponse(
+                    entity.getTokenBalance(),
+                    toCardIds(room.userCards),
+                    room.botCards.size(),
+                    turnLabel(room.currentTurn),
+                    toCardIds(room.table)
+            );
         }
 
         User entity = userService.getByUserId(user.getId());
@@ -90,10 +101,18 @@ public class BotRoomService {
         }
 
         entity.setTokenBalance(entity.getTokenBalance() - room.betToken);
+        transactionRepository.save(com.tienlen.be.entity.Transaction.builder()
+                .userId(entity.getId())
+                .amount(-room.betToken)
+                .type("GAME_BET")
+                .description("Bet for PVB game")
+                .createdAt(java.time.LocalDateTime.now())
+                .build());
         userService.saveAll(List.of(entity));
 
         dealCards(room);
         room.started = true;
+        room.startTime = java.time.LocalDateTime.now();
         room.finished = false;
         room.winners.clear();
         room.table.clear();
@@ -102,7 +121,7 @@ public class BotRoomService {
         room.currentTurn = findFirstTurn(room);
 
         if (room.currentTurn == BOT_SEAT) {
-            botTurn(room);
+            botTurn(room, user.getId());
         }
 
         return new BotRoomStartResponse(
@@ -128,11 +147,11 @@ public class BotRoomService {
 
         List<Integer> rawCards = request == null || request.getCards() == null ? List.of() : request.getCards();
         List<Card> playedByUser = rawCards.stream().map(this::parseCard).toList();
-        applyMove(room, USER_SEAT, playedByUser);
+        applyMove(room, USER_SEAT, playedByUser, user.getId());
 
         List<Card> botPlayed = List.of();
         if (!room.finished && room.currentTurn == BOT_SEAT) {
-            botPlayed = botTurn(room);
+            botPlayed = botTurn(room, user.getId());
         }
 
         return new BotRoomAttackResponse(
@@ -146,7 +165,7 @@ public class BotRoomService {
         );
     }
 
-    private List<Card> botTurn(BotRoomState room) {
+    private List<Card> botTurn(BotRoomState room, Long userId) {
         if (room.finished) {
             return List.of();
         }
@@ -155,7 +174,7 @@ public class BotRoomService {
             case MEDIUM -> chooseMediumMove(room);
             case HARD -> chooseHardMove(room);
         };
-        applyMove(room, BOT_SEAT, botMove);
+        applyMove(room, BOT_SEAT, botMove, userId);
         return botMove;
     }
 
@@ -225,7 +244,7 @@ public class BotRoomService {
         return null;
     }
 
-    private void applyMove(BotRoomState room, int seat, List<Card> move) {
+    private void applyMove(BotRoomState room, int seat, List<Card> move, Long userId) {
         boolean isPass = move == null || move.isEmpty();
         if (isPass) {
             if (room.table.isEmpty()) {
@@ -250,18 +269,50 @@ public class BotRoomService {
         room.lastAttackerSeat = seat;
 
         if (hand.isEmpty()) {
-            finish(room, seat);
+            finish(room, seat, userId);
             return;
         }
         room.currentTurn = oppositeSeat(seat);
     }
 
-    private void finish(BotRoomState room, int firstWinnerSeat) {
+    private void finish(BotRoomState room, int firstWinnerSeat, Long userId) {
         room.finished = true;
         room.currentTurn = firstWinnerSeat;
         room.winners.clear();
         room.winners.add(firstWinnerSeat);
         room.winners.add(oppositeSeat(firstWinnerSeat));
+
+        com.tienlen.be.entity.MatchHistory match = matchHistoryRepository.save(com.tienlen.be.entity.MatchHistory.builder()
+                .roomType("PVB")
+                .betToken(room.betToken)
+                .startTime(room.startTime)
+                .endTime(java.time.LocalDateTime.now())
+                .winners(firstWinnerSeat == USER_SEAT ? userId.toString() : "BOT")
+                .build());
+
+        long winAmount = firstWinnerSeat == USER_SEAT ? room.betToken * 2 : 0;
+        
+        matchParticipantRepository.save(com.tienlen.be.entity.MatchParticipant.builder()
+                .match(match)
+                .userId(userId)
+                .rank(firstWinnerSeat == USER_SEAT ? 1 : 2)
+                .tokenChange(winAmount - room.betToken)
+                .build());
+
+        if (winAmount > 0) {
+            User entity = userService.getByUserId(userId);
+            entity.setTokenBalance(entity.getTokenBalance() + winAmount);
+            userService.saveAll(List.of(entity));
+
+            transactionRepository.save(com.tienlen.be.entity.Transaction.builder()
+                    .userId(userId)
+                    .amount(winAmount)
+                    .type("GAME_WIN")
+                    .description("Win payout for PVB game")
+                    .createdAt(java.time.LocalDateTime.now())
+                    .referenceId(match.getId())
+                    .build());
+        }
     }
 
     private boolean isValidMove(List<Card> table, List<Card> move) {
@@ -907,6 +958,7 @@ public class BotRoomService {
         private BotLevel botLevel;
         private boolean started;
         private boolean finished;
+        private java.time.LocalDateTime startTime;
         private int currentTurn;
         private int lastAttackerSeat;
         private List<Card> userCards;

@@ -8,6 +8,7 @@ import lombok.Data;
 @AllArgsConstructor
 public class UserResponse {
     private Long id;
+    private String account;
     private String name;
     private String avatarUrl;
     private long tokenBalance;
@@ -17,6 +18,7 @@ public class UserResponse {
 
     public UserResponse(User user) {
         this.id = user.getId();
+        this.account = user.getAccount();
         this.name = user.getName();
         this.tokenBalance = user.getTokenBalance();
         this.avatarUrl = user.getAvatarUrl();

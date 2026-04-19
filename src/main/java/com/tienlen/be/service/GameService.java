@@ -10,6 +10,9 @@ import com.tienlen.be.dto.response.PlayerResponse;
 import com.tienlen.be.dto.response.RoomStateResponse;
 import com.tienlen.be.dto.response.SocketResponse;
 import com.tienlen.be.dto.response.UserResponse;
+import com.tienlen.be.entity.MatchHistory;
+import com.tienlen.be.entity.MatchParticipant;
+import com.tienlen.be.entity.Transaction;
 import com.tienlen.be.entity.User;
 import com.tienlen.be.exception.BadRequestException;
 import com.tienlen.be.model.Player;
@@ -18,6 +21,9 @@ import com.tienlen.be.model.RoomStatus;
 import com.tienlen.be.model.Card;
 import com.tienlen.be.model.MoveType;
 import com.tienlen.be.model.RuleValidator;
+import com.tienlen.be.repository.MatchHistoryRepository;
+import com.tienlen.be.repository.MatchParticipantRepository;
+import com.tienlen.be.repository.TransactionRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,6 +51,9 @@ public class GameService {
     private final UserService userService;
     private final JwtService jwtService;
     private final ObjectMapper mapper;
+    private final MatchHistoryRepository matchHistoryRepository;
+    private final MatchParticipantRepository matchParticipantRepository;
+    private final TransactionRepository transactionRepository;
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
 
     private String getToken(WebSocketSession session) {
@@ -343,6 +352,7 @@ public class GameService {
             return;
         }
 
+        room.setStartTime(java.time.LocalDateTime.now());
         room.prepareGame();
 
         for (Player p : room.getPlayers().values()) {
@@ -384,6 +394,13 @@ public class GameService {
 
         for (User user : users) {
             user.setTokenBalance(user.getTokenBalance() - betToken);
+            transactionRepository.save(Transaction.builder()
+                    .userId(user.getId())
+                    .amount(-betToken)
+                    .type("GAME_BET")
+                    .description("Bet for PVP room " + room.getRoomId())
+                    .createdAt(java.time.LocalDateTime.now())
+                    .build());
         }
         userService.saveAll(users);
 
@@ -436,15 +453,46 @@ public class GameService {
             payoutByUserId.merge(rankedWinnerIds.get(0), remainder, Long::sum);
         }
 
-        List<User> usersToSave = new ArrayList<>();
-        for (Map.Entry<Long, Long> entry : payoutByUserId.entrySet()) {
-            User user = userService.getByUserId(entry.getKey());
-            user.setTokenBalance(user.getTokenBalance() + entry.getValue());
-            usersToSave.add(user);
+        // --- SAVE DATA TO DB ---
+        MatchHistory match = matchHistoryRepository.save(MatchHistory.builder()
+                .roomType("PVP")
+                .betToken(room.getBetToken())
+                .startTime(room.getStartTime() != null ? room.getStartTime() : java.time.LocalDateTime.now())
+                .endTime(java.time.LocalDateTime.now())
+                .winners(rankedWinnerIds.stream().map(String::valueOf).collect(Collectors.joining(",")))
+                .build());
 
-            Player player = room.getPlayers().get(entry.getKey());
+        List<User> usersToSave = new ArrayList<>();
+        for (Long userId : room.getRoundParticipantIds()) {
+            Long winAmount = payoutByUserId.getOrDefault(userId, 0L);
+            int rank = rankedWinnerIds.indexOf(userId) + 1;
+            
+            matchParticipantRepository.save(MatchParticipant.builder()
+                    .match(match)
+                    .userId(userId)
+                    .rank(rank > 0 ? rank : null)
+                    .tokenChange(winAmount - room.getBetToken())
+                    .build());
+
+            if (winAmount > 0) {
+                User user = userService.getByUserId(userId);
+                user.setTokenBalance(user.getTokenBalance() + winAmount);
+                usersToSave.add(user);
+
+                transactionRepository.save(Transaction.builder()
+                        .userId(userId)
+                        .amount(winAmount)
+                        .type("GAME_WIN")
+                        .description("Win payout for PVP room " + room.getRoomId())
+                        .createdAt(java.time.LocalDateTime.now())
+                        .referenceId(match.getId())
+                        .build());
+            }
+
+            // Sync balance to player model in memory for UI update
+            Player player = room.getPlayers().get(userId);
             if (player != null) {
-                player.getUser().setTokenBalance(user.getTokenBalance());
+                player.getUser().setTokenBalance(userService.getByUserId(userId).getTokenBalance());
             }
         }
 
