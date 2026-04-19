@@ -72,6 +72,7 @@ public class AuthService {
             throw new BadRequestException("Tài khoản hoặc mật khẩu không đúng");
         }
 
+        jwtService.revokeAllUserTokens(user);
         String token = jwtService.generateToken(user);
 
         return new LoginResponse(token, new UserResponse(user));
@@ -109,6 +110,7 @@ public class AuthService {
                 user = userRepository.save(user);
             }
 
+            jwtService.revokeAllUserTokens(user);
             String token = jwtService.generateToken(user);
             return new LoginResponse(token, new UserResponse(user));
 
@@ -116,5 +118,11 @@ public class AuthService {
             e.printStackTrace();
             throw new BadRequestException("Xác nhận Google Token thất bại. Vui lòng thử lại.");
         }
+    }
+
+    public void logout(UserResponse userResponse) {
+        User user = userRepository.findById(userResponse.getId())
+                .orElseThrow(() -> new BadRequestException("User not found"));
+        jwtService.revokeAllUserTokens(user);
     }
 }

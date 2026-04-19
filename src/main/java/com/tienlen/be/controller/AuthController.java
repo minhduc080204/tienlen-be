@@ -3,6 +3,8 @@ package com.tienlen.be.controller;
 import com.tienlen.be.dto.request.LoginRequest;
 import com.tienlen.be.dto.request.RegisterRequest;
 import com.tienlen.be.dto.response.LoginResponse;
+import com.tienlen.be.dto.response.UserResponse;
+import com.tienlen.be.security.CurrentUser;
 import com.tienlen.be.service.AuthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -35,5 +37,11 @@ public class AuthController {
     @PostMapping("/google")
     public ResponseEntity<LoginResponse> googleLogin(@RequestBody GoogleLoginRequest request) {
         return ResponseEntity.ok(authService.loginWithGoogle(request));
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<?> logout(@CurrentUser UserResponse user) {
+        authService.logout(user);
+        return ResponseEntity.ok("Logout success");
     }
 }
