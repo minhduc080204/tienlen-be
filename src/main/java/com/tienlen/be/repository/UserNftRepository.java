@@ -6,4 +6,5 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface UserNftRepository extends JpaRepository<UserNft, Long> {
+    boolean existsByTxHash(String txHash);
 }
