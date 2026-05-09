@@ -16,7 +16,7 @@ import java.io.IOException;
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/v1/nfts")
+@RequestMapping("/api/nfts")
 @RequiredArgsConstructor
 public class NftController {
 
