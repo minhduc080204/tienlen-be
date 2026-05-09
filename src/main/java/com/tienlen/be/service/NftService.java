@@ -13,7 +13,6 @@ import org.web3j.protocol.Web3j;
 import org.web3j.protocol.core.methods.response.EthGetTransactionReceipt;
 import org.web3j.protocol.core.methods.response.Log;
 import org.web3j.protocol.core.methods.response.TransactionReceipt;
-import org.web3j.protocol.http.HttpService;
 import org.web3j.utils.Numeric;
 
 import java.io.IOException;
@@ -27,22 +26,13 @@ import java.util.Optional;
 @Slf4j
 public class NftService {
 
-    private final UserNftRepository userNftRepository;
+    private static final String TRANSFER_SINGLE_SIGNATURE = "0xc3d58168c5592394b588934485304b46c6f71d184762c2f6d50060934891122a";
 
-    @Value("${blockchain.polygon.rpc-url}")
-    private String rpcUrl;
+    private final UserNftRepository userNftRepository;
+    private final Web3j web3j;
 
     @Value("${blockchain.nft-contract-address}")
     private String contractAddress;
-
-    private Web3j web3j;
-
-    private synchronized Web3j getWeb3j() {
-        if (web3j == null) {
-            web3j = Web3j.build(new HttpService(rpcUrl));
-        }
-        return web3j;
-    }
 
     public void verifyAndSaveNft(NftVerifyRequest request, Long userId) throws IOException {
         log.info("Verifying NFT purchase: txHash={}, itemId={}, userId={}", 
@@ -52,7 +42,7 @@ public class NftService {
             throw new ConflictException("Transaction has already been verified");
         }
 
-        EthGetTransactionReceipt receiptResponse = getWeb3j().ethGetTransactionReceipt(request.getTxHash()).send();
+        EthGetTransactionReceipt receiptResponse = web3j.ethGetTransactionReceipt(request.getTxHash()).send();
         Optional<TransactionReceipt> receiptOpt = receiptResponse.getTransactionReceipt();
 
         if (receiptOpt.isEmpty()) {
@@ -70,12 +60,10 @@ public class NftService {
         }
 
         boolean verified = false;
-        // TransferSingle(address operator, address from, address to, uint256 id, uint256 value)
-        String transferSingleSignature = "0xc3d58168c5592394b588934485304b46c6f71d184762c2f6d50060934891122a";
 
         for (Log logEntry : receipt.getLogs()) {
             List<String> topics = logEntry.getTopics();
-            if (topics != null && !topics.isEmpty() && topics.get(0).equalsIgnoreCase(transferSingleSignature)) {
+            if (topics != null && !topics.isEmpty() && topics.get(0).equalsIgnoreCase(TRANSFER_SINGLE_SIGNATURE)) {
                 if (topics.size() < 4) continue;
 
                 // topics[3] is 'to' address (indexed)

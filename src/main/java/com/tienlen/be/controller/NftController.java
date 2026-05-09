@@ -30,7 +30,7 @@ public class NftController {
         return ResponseEntity.ok().build();
     }
 
-    @GetMapping("/")
+    @GetMapping("")
     public ResponseEntity<List<NftItem>> getAllActiveNfts() {
         return ResponseEntity.ok(nftItemRepository.findByActiveTrue());
     }
