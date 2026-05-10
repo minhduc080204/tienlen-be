@@ -35,3 +35,4 @@ build/
 .gemini
 docs/
 src/main/resources/application.properties
+.worktrees/
