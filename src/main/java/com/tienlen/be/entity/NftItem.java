@@ -19,9 +19,8 @@ public class NftItem {
 
     @Column(name = "price_matic", precision = 38, scale = 18)
     private BigDecimal priceMatic;
-    private String imageUrl;
-    private String cardImageUrl;
-    private String backCardImageUrl;
+    private String promoteImageUrl;
+    private String sourceUrl;
     private boolean active;
     private boolean defaultItem;
 }

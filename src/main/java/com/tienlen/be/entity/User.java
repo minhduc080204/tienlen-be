@@ -29,6 +29,15 @@ public class User {
     @Column(nullable = false, columnDefinition = "BIGINT DEFAULT 1000")
     private long tokenBalance;
 
+    @Column(nullable = false, columnDefinition = "BOOLEAN DEFAULT TRUE")
+    private boolean musicEnabled = true;
+
+    @Column(nullable = false, columnDefinition = "BOOLEAN DEFAULT TRUE")
+    private boolean effectEnabled = true;
+
+    @Column(nullable = true, columnDefinition = "BIGINT DEFAULT 1")
+    private Long selectedCardSkinId = 1L;
+
     @Transient
     private Integer currentRoom;
 }
