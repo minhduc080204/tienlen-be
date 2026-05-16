@@ -25,18 +25,31 @@ public class NftController {
     private final UserNftRepository userNftRepository;
 
     @PostMapping("/verify")
-    public ResponseEntity<?> verifyNft(@CurrentUser UserResponse user, @RequestBody NftVerifyRequest request) throws IOException {
+    public ResponseEntity<?> verifyNft(@CurrentUser UserResponse user, @RequestBody NftVerifyRequest request)
+            throws IOException {
         nftService.verifyAndSaveNft(request, user.getId());
         return ResponseEntity.ok().build();
     }
 
+    /**
+     * Verify giao dịch chuyển MATIC từ ví user sang ví admin,
+     * sau đó unlock item (lưu vào user_nfts).
+     * Body: { txHash, itemId, walletAddress }
+     */
+    @PostMapping("/verify-transfer")
+    public ResponseEntity<?> verifyTransfer(@CurrentUser UserResponse user, @RequestBody NftVerifyRequest request)
+            throws IOException {
+        nftService.verifyTransferAndUnlockItem(request, user.getId());
+        return ResponseEntity.ok().build();
+    }
+
     @GetMapping("")
-    public ResponseEntity<List<NftItem>> getAllActiveNfts() {
-        return ResponseEntity.ok(nftItemRepository.findByActiveTrue());
+    public ResponseEntity<List<NftItem>> getAllActiveNfts(@CurrentUser UserResponse user) {
+        return ResponseEntity.ok(nftItemRepository.findAvailableForShop(user.getId()));
     }
 
     @GetMapping("/my")
-    public ResponseEntity<List<UserNft>> getMyNfts(@CurrentUser UserResponse user) {
-        return ResponseEntity.ok(userNftRepository.findByUserId(user.getId()));
+    public ResponseEntity<List<NftItem>> getMyNfts(@CurrentUser UserResponse user) {
+        return ResponseEntity.ok(nftItemRepository.findOwnedByUser(user.getId()));
     }
 }

@@ -1,5 +1,6 @@
 package com.tienlen.be.service;
 
+import com.tienlen.be.dto.request.UserSettingsRequest;
 import com.tienlen.be.dto.response.*;
 import com.tienlen.be.entity.User;
 import com.tienlen.be.exception.BadRequestException;
@@ -67,5 +68,25 @@ public class UserService {
 
     public List<User> saveAll(List<User> users) {
         return userRepository.saveAll(users);
+    }
+
+    public UserSettingsResponse getSettings(Long userId) {
+        User user = getByUserId(userId);
+        return new UserSettingsResponse(user);
+    }
+
+    public UserSettingsResponse saveSettings(Long userId, UserSettingsRequest request) {
+        User user = getByUserId(userId);
+        if (request.getMusicEnabled() != null) {
+            user.setMusicEnabled(request.getMusicEnabled());
+        }
+        if (request.getEffectEnabled() != null) {
+            user.setEffectEnabled(request.getEffectEnabled());
+        }
+        if (request.getSelectedCardSkinId() != null) {
+            user.setSelectedCardSkinId(request.getSelectedCardSkinId());
+        }
+        userRepository.save(user);
+        return new UserSettingsResponse(user);
     }
 }
