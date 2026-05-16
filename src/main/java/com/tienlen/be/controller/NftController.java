@@ -25,8 +25,21 @@ public class NftController {
     private final UserNftRepository userNftRepository;
 
     @PostMapping("/verify")
-    public ResponseEntity<?> verifyNft(@CurrentUser UserResponse user, @RequestBody NftVerifyRequest request) throws IOException {
+    public ResponseEntity<?> verifyNft(@CurrentUser UserResponse user, @RequestBody NftVerifyRequest request)
+            throws IOException {
         nftService.verifyAndSaveNft(request, user.getId());
+        return ResponseEntity.ok().build();
+    }
+
+    /**
+     * Verify giao dịch chuyển MATIC từ ví user sang ví admin,
+     * sau đó unlock item (lưu vào user_nfts).
+     * Body: { txHash, itemId, walletAddress }
+     */
+    @PostMapping("/verify-transfer")
+    public ResponseEntity<?> verifyTransfer(@CurrentUser UserResponse user, @RequestBody NftVerifyRequest request)
+            throws IOException {
+        nftService.verifyTransferAndUnlockItem(request, user.getId());
         return ResponseEntity.ok().build();
     }
 

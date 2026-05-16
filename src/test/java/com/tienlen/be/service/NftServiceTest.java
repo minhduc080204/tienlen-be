@@ -59,17 +59,16 @@ class NftServiceTest {
         TransactionReceipt receipt = new TransactionReceipt();
         receipt.setStatus("0x1");
         receipt.setTo(CONTRACT_ADDRESS);
-        
+
         Log logEntry = new Log();
         logEntry.setTopics(List.of(
                 "0xc3d58168c5592394b588934485304b46c6f71d184762c2f6d50060934891122a",
                 "0xOperator",
                 "0xFrom",
-                "0x000000000000000000000000" + WALLET_ADDRESS.substring(2)
-        ));
+                "0x000000000000000000000000" + WALLET_ADDRESS.substring(2)));
         // data: id=1, value=1 (both uint256)
         logEntry.setData("0x0000000000000000000000000000000000000000000000000000000000000001" +
-                         "0000000000000000000000000000000000000000000000000000000000000001");
+                "0000000000000000000000000000000000000000000000000000000000000001");
         receipt.setLogs(List.of(logEntry));
 
         mockWeb3jResponse(receipt);
@@ -95,7 +94,8 @@ class NftServiceTest {
 
         mockWeb3jResponse(null);
 
-        BadRequestException ex = assertThrows(BadRequestException.class, () -> nftService.verifyAndSaveNft(request, USER_ID));
+        BadRequestException ex = assertThrows(BadRequestException.class,
+                () -> nftService.verifyAndSaveNft(request, USER_ID));
         assertEquals("Transaction receipt not found", ex.getMessage());
     }
 
@@ -108,7 +108,8 @@ class NftServiceTest {
         receipt.setStatus("0x0");
         mockWeb3jResponse(receipt);
 
-        BadRequestException ex = assertThrows(BadRequestException.class, () -> nftService.verifyAndSaveNft(request, USER_ID));
+        BadRequestException ex = assertThrows(BadRequestException.class,
+                () -> nftService.verifyAndSaveNft(request, USER_ID));
         assertEquals("Transaction failed on blockchain", ex.getMessage());
     }
 
@@ -122,7 +123,8 @@ class NftServiceTest {
         receipt.setTo("0xWrongContract");
         mockWeb3jResponse(receipt);
 
-        BadRequestException ex = assertThrows(BadRequestException.class, () -> nftService.verifyAndSaveNft(request, USER_ID));
+        BadRequestException ex = assertThrows(BadRequestException.class,
+                () -> nftService.verifyAndSaveNft(request, USER_ID));
         assertEquals("Transaction was not sent to the NFT contract", ex.getMessage());
     }
 
@@ -137,7 +139,8 @@ class NftServiceTest {
         receipt.setLogs(Collections.emptyList());
         mockWeb3jResponse(receipt);
 
-        BadRequestException ex = assertThrows(BadRequestException.class, () -> nftService.verifyAndSaveNft(request, USER_ID));
+        BadRequestException ex = assertThrows(BadRequestException.class,
+                () -> nftService.verifyAndSaveNft(request, USER_ID));
         assertEquals("Could not verify NFT transfer in transaction logs", ex.getMessage());
     }
 
