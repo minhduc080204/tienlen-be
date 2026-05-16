@@ -44,12 +44,12 @@ public class NftController {
     }
 
     @GetMapping("")
-    public ResponseEntity<List<NftItem>> getAllActiveNfts() {
-        return ResponseEntity.ok(nftItemRepository.findByActiveTrue());
+    public ResponseEntity<List<NftItem>> getAllActiveNfts(@CurrentUser UserResponse user) {
+        return ResponseEntity.ok(nftItemRepository.findAvailableForShop(user.getId()));
     }
 
     @GetMapping("/my")
-    public ResponseEntity<List<UserNft>> getMyNfts(@CurrentUser UserResponse user) {
-        return ResponseEntity.ok(userNftRepository.findByUserId(user.getId()));
+    public ResponseEntity<List<NftItem>> getMyNfts(@CurrentUser UserResponse user) {
+        return ResponseEntity.ok(nftItemRepository.findOwnedByUser(user.getId()));
     }
 }
