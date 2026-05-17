@@ -25,7 +25,7 @@ public class NftItem {
     private String type = "STANDARD";
 
     @Builder.Default
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, columnDefinition = "DATETIME DEFAULT CURRENT_TIMESTAMP")
     private java.time.LocalDateTime createdAt = java.time.LocalDateTime.now();
 
     private boolean active;
