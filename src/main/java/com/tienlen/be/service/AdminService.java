@@ -115,4 +115,81 @@ public class AdminService {
     public void deleteNft(Long id) {
         nftItemRepository.deleteById(id);
     }
+
+    // --- MATCHES API ---
+    public java.util.List<com.tienlen.be.dto.response.admin.AdminMatchDTO> getAllMatches() {
+        java.util.List<com.tienlen.be.dto.response.admin.AdminMatchDTO> allMatches = new java.util.ArrayList<>();
+        
+        roomService.getAllRooms().forEach(room -> {
+            allMatches.add(com.tienlen.be.dto.response.admin.AdminMatchDTO.builder()
+                .id("room-" + room.getRoomId())
+                .roomName("Phòng " + room.getRoomId() + " PVP")
+                .mode("MULTIPLAYER")
+                .betAmount(room.getBetToken())
+                .status(room.getStatus().name())
+                .playersCount(room.getPlayers().size())
+                .maxPlayers(4)
+                .winnerName(null)
+                .createdAt(room.getStartTime() != null ? room.getStartTime() : java.time.LocalDateTime.now())
+                .build());
+        });
+
+        matchHistoryRepository.findAll().forEach(match -> {
+            allMatches.add(com.tienlen.be.dto.response.admin.AdminMatchDTO.builder()
+                .id("match-" + match.getId())
+                .roomName("Trận " + match.getId() + " " + match.getRoomType())
+                .mode(match.getRoomType().equals("PVP") ? "MULTIPLAYER" : match.getRoomType())
+                .betAmount(match.getBetToken())
+                .status("FINISHED")
+                .playersCount(0)
+                .maxPlayers(4)
+                .winnerName("ID: " + match.getWinners())
+                .createdAt(match.getStartTime())
+                .build());
+        });
+
+        allMatches.sort((m1, m2) -> m2.getCreatedAt().compareTo(m1.getCreatedAt()));
+        return allMatches;
+    }
+
+    public void deleteMatch(String id) {
+        if (id.startsWith("room-")) {
+            int roomId = Integer.parseInt(id.replace("room-", ""));
+            roomService.deleteRoom(roomId);
+        } else if (id.startsWith("match-")) {
+            Long matchId = Long.parseLong(id.replace("match-", ""));
+            matchHistoryRepository.deleteById(matchId);
+        }
+    }
+
+    // --- TRANSACTIONS API ---
+    public java.util.List<com.tienlen.be.dto.response.admin.AdminTransactionDTO> getAllTransactions() {
+        return transactionRepository.findAll().stream().map(tx -> {
+            com.tienlen.be.entity.User user = userRepository.findById(tx.getUserId()).orElse(null);
+            return com.tienlen.be.dto.response.admin.AdminTransactionDTO.builder()
+                .id("tx-" + tx.getId())
+                .txHash(tx.getTxHash() != null ? tx.getTxHash() : "")
+                .walletAddress(tx.getWalletAddress() != null ? tx.getWalletAddress() : "")
+                .amount(tx.getAmount())
+                .type(tx.getType())
+                .status(tx.getStatus())
+                .userName(user != null ? user.getName() : "Unknown")
+                .createdAt(tx.getCreatedAt())
+                .build();
+        }).sorted((t1, t2) -> t2.getCreatedAt().compareTo(t1.getCreatedAt()))
+          .collect(java.util.stream.Collectors.toList());
+    }
+
+    public com.tienlen.be.dto.response.admin.AdminTransactionDTO updateTransaction(String id, com.tienlen.be.dto.response.admin.AdminTransactionDTO dto) {
+        Long txId = Long.parseLong(id.replace("tx-", ""));
+        com.tienlen.be.entity.Transaction tx = transactionRepository.findById(txId).orElseThrow();
+        if (dto.getStatus() != null) tx.setStatus(dto.getStatus());
+        transactionRepository.save(tx);
+        return dto;
+    }
+
+    public void deleteTransaction(String id) {
+        Long txId = Long.parseLong(id.replace("tx-", ""));
+        transactionRepository.deleteById(txId);
+    }
 }

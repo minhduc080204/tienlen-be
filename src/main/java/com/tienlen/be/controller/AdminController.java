@@ -65,4 +65,35 @@ public class AdminController {
         adminService.deleteNft(id);
         return ResponseEntity.ok().build();
     }
+
+    // --- MATCHES API ---
+    @GetMapping("/matches")
+    public ResponseEntity<java.util.List<com.tienlen.be.dto.response.admin.AdminMatchDTO>> getAllMatches() {
+        return ResponseEntity.ok(adminService.getAllMatches());
+    }
+
+    @org.springframework.web.bind.annotation.DeleteMapping("/matches/{id}")
+    public ResponseEntity<Void> deleteMatch(@org.springframework.web.bind.annotation.PathVariable String id) {
+        adminService.deleteMatch(id);
+        return ResponseEntity.ok().build();
+    }
+
+    // --- TRANSACTIONS API ---
+    @GetMapping("/transactions")
+    public ResponseEntity<java.util.List<com.tienlen.be.dto.response.admin.AdminTransactionDTO>> getAllTransactions() {
+        return ResponseEntity.ok(adminService.getAllTransactions());
+    }
+
+    @org.springframework.web.bind.annotation.PutMapping("/transactions/{id}")
+    public ResponseEntity<com.tienlen.be.dto.response.admin.AdminTransactionDTO> updateTransaction(
+            @org.springframework.web.bind.annotation.PathVariable String id,
+            @org.springframework.web.bind.annotation.RequestBody com.tienlen.be.dto.response.admin.AdminTransactionDTO dto) {
+        return ResponseEntity.ok(adminService.updateTransaction(id, dto));
+    }
+
+    @org.springframework.web.bind.annotation.DeleteMapping("/transactions/{id}")
+    public ResponseEntity<Void> deleteTransaction(@org.springframework.web.bind.annotation.PathVariable String id) {
+        adminService.deleteTransaction(id);
+        return ResponseEntity.ok().build();
+    }
 }

@@ -63,6 +63,10 @@ public class RoomService {
         return rooms.size();
     }
 
+    public java.util.List<Room> getAllRooms() {
+        return new java.util.ArrayList<>(rooms.values());
+    }
+
     public void deleteRoom(int roomId) {
         Room room = rooms.remove(roomId);
         room.shutdown();
