@@ -12,6 +12,7 @@ public class UserResponse {
     private String name;
     private String avatarUrl;
     private long tokenBalance;
+    private String role;
 
     public UserResponse() {
     }
@@ -22,5 +23,6 @@ public class UserResponse {
         this.name = user.getName();
         this.tokenBalance = user.getTokenBalance();
         this.avatarUrl = user.getAvatarUrl();
+        this.role = user.getRole();
     }
 }

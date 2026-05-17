@@ -23,6 +23,9 @@ public class User {
     @Column(nullable = false)
     private String password;
 
+    @Column(nullable = false, columnDefinition = "VARCHAR(50) DEFAULT 'USER'")
+    private String role = "USER";
+
     @Column(nullable = true)
     private String avatarUrl;
 
