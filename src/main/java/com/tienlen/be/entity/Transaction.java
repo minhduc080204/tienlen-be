@@ -34,4 +34,14 @@ public class Transaction {
 
     @Column
     private Long referenceId; // e.g., match_id
+
+    @Column(unique = true)
+    private String txHash;
+
+    @Column
+    private String walletAddress;
+
+    @Builder.Default
+    @Column(nullable = false, columnDefinition = "VARCHAR(50) DEFAULT 'SUCCESS'")
+    private String status = "SUCCESS";
 }
