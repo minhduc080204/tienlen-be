@@ -21,4 +21,48 @@ public class AdminController {
     public ResponseEntity<DashboardStatsDTO> getDashboardStats() {
         return ResponseEntity.ok(adminService.getDashboardStats());
     }
+
+    // --- USERS API ---
+    @GetMapping("/users")
+    public ResponseEntity<java.util.List<com.tienlen.be.dto.response.admin.AdminUserDTO>> getAllUsers() {
+        return ResponseEntity.ok(adminService.getAllUsers());
+    }
+
+    @org.springframework.web.bind.annotation.PutMapping("/users/{id}")
+    public ResponseEntity<com.tienlen.be.dto.response.admin.AdminUserDTO> updateUser(
+            @org.springframework.web.bind.annotation.PathVariable Long id,
+            @org.springframework.web.bind.annotation.RequestBody com.tienlen.be.dto.response.admin.AdminUserDTO dto) {
+        return ResponseEntity.ok(adminService.updateUser(id, dto));
+    }
+
+    @org.springframework.web.bind.annotation.DeleteMapping("/users/{id}")
+    public ResponseEntity<Void> deleteUser(@org.springframework.web.bind.annotation.PathVariable Long id) {
+        adminService.deleteUser(id);
+        return ResponseEntity.ok().build();
+    }
+
+    // --- NFTS API ---
+    @GetMapping("/nfts")
+    public ResponseEntity<java.util.List<com.tienlen.be.dto.response.admin.AdminNftDTO>> getAllNfts() {
+        return ResponseEntity.ok(adminService.getAllNfts());
+    }
+
+    @org.springframework.web.bind.annotation.PostMapping("/nfts")
+    public ResponseEntity<com.tienlen.be.dto.response.admin.AdminNftDTO> addNft(
+            @org.springframework.web.bind.annotation.RequestBody com.tienlen.be.dto.response.admin.AdminNftDTO dto) {
+        return ResponseEntity.ok(adminService.addNft(dto));
+    }
+
+    @org.springframework.web.bind.annotation.PutMapping("/nfts/{id}")
+    public ResponseEntity<com.tienlen.be.dto.response.admin.AdminNftDTO> updateNft(
+            @org.springframework.web.bind.annotation.PathVariable Long id,
+            @org.springframework.web.bind.annotation.RequestBody com.tienlen.be.dto.response.admin.AdminNftDTO dto) {
+        return ResponseEntity.ok(adminService.updateNft(id, dto));
+    }
+
+    @org.springframework.web.bind.annotation.DeleteMapping("/nfts/{id}")
+    public ResponseEntity<Void> deleteNft(@org.springframework.web.bind.annotation.PathVariable Long id) {
+        adminService.deleteNft(id);
+        return ResponseEntity.ok().build();
+    }
 }
