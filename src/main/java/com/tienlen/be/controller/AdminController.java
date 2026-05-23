@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminController {
 
     private final AdminService adminService;
+    private final com.tienlen.be.service.AvatarService avatarService;
 
     @GetMapping("/stats")
     public ResponseEntity<DashboardStatsDTO> getDashboardStats() {
@@ -94,6 +95,31 @@ public class AdminController {
     @org.springframework.web.bind.annotation.DeleteMapping("/transactions/{id}")
     public ResponseEntity<Void> deleteTransaction(@org.springframework.web.bind.annotation.PathVariable String id) {
         adminService.deleteTransaction(id);
+        return ResponseEntity.ok().build();
+    }
+
+    // --- AVATARS API ---
+    @GetMapping("/avatars")
+    public ResponseEntity<java.util.List<com.tienlen.be.dto.response.admin.AdminAvatarDTO>> getAllAvatars() {
+        return ResponseEntity.ok(avatarService.getAllAvatarsForAdmin());
+    }
+
+    @org.springframework.web.bind.annotation.PostMapping("/avatars")
+    public ResponseEntity<com.tienlen.be.dto.response.admin.AdminAvatarDTO> addAvatar(
+            @org.springframework.web.bind.annotation.RequestBody com.tienlen.be.dto.response.admin.AdminAvatarDTO dto) {
+        return ResponseEntity.ok(avatarService.addAvatarForAdmin(dto));
+    }
+
+    @org.springframework.web.bind.annotation.PutMapping("/avatars/{id}")
+    public ResponseEntity<com.tienlen.be.dto.response.admin.AdminAvatarDTO> updateAvatar(
+            @org.springframework.web.bind.annotation.PathVariable Long id,
+            @org.springframework.web.bind.annotation.RequestBody com.tienlen.be.dto.response.admin.AdminAvatarDTO dto) {
+        return ResponseEntity.ok(avatarService.updateAvatarForAdmin(id, dto));
+    }
+
+    @org.springframework.web.bind.annotation.DeleteMapping("/avatars/{id}")
+    public ResponseEntity<Void> deleteAvatar(@org.springframework.web.bind.annotation.PathVariable Long id) {
+        avatarService.deleteAvatarForAdmin(id);
         return ResponseEntity.ok().build();
     }
 }
