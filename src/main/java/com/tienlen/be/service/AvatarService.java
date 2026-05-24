@@ -135,6 +135,7 @@ public class AvatarService {
         // Mở khóa avatar cho user
         UserAvatar userAvatar = UserAvatar.builder()
                 .userId(userId)
+                .avatarItemId(item.getId())
                 .style(style)
                 .createdAt(LocalDateTime.now())
                 .build();
@@ -208,6 +209,7 @@ public class AvatarService {
         // 8. Lưu mở khóa avatar cho user
         UserAvatar userAvatar = UserAvatar.builder()
                 .userId(userId)
+                .avatarItemId(item.getId())
                 .style(style)
                 .walletAddress(request.getWalletAddress())
                 .txHash(request.getTxHash())

@@ -19,6 +19,9 @@ public class UserAvatar {
     @Column(nullable = false)
     private Long userId;
 
+    @Column(name = "avatar_item_id", nullable = false)
+    private Long avatarItemId;
+
     @Column(nullable = false)
     private String style;
 
