@@ -1,13 +1,15 @@
 package com.tienlen.be.controller;
 
+import com.tienlen.be.dto.response.admin.AdminTokenPackageDTO;
 import com.tienlen.be.dto.response.admin.DashboardStatsDTO;
 import com.tienlen.be.service.AdminService;
+import com.tienlen.be.service.TokenDepositService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/admin")
@@ -17,6 +19,7 @@ public class AdminController {
 
     private final AdminService adminService;
     private final com.tienlen.be.service.AvatarService avatarService;
+    private final TokenDepositService tokenDepositService;
 
     @GetMapping("/stats")
     public ResponseEntity<DashboardStatsDTO> getDashboardStats() {
@@ -120,6 +123,31 @@ public class AdminController {
     @org.springframework.web.bind.annotation.DeleteMapping("/avatars/{id}")
     public ResponseEntity<Void> deleteAvatar(@org.springframework.web.bind.annotation.PathVariable Long id) {
         avatarService.deleteAvatarForAdmin(id);
+        return ResponseEntity.ok().build();
+    }
+
+    // --- TOKEN PACKAGES API ---
+    @GetMapping("/token-packages")
+    public ResponseEntity<List<AdminTokenPackageDTO>> getAllTokenPackages() {
+        return ResponseEntity.ok(tokenDepositService.getAllPackages());
+    }
+
+    @PostMapping("/token-packages")
+    public ResponseEntity<AdminTokenPackageDTO> createTokenPackage(
+            @RequestBody AdminTokenPackageDTO dto) {
+        return ResponseEntity.ok(tokenDepositService.createPackage(dto));
+    }
+
+    @PutMapping("/token-packages/{id}")
+    public ResponseEntity<AdminTokenPackageDTO> updateTokenPackage(
+            @PathVariable Long id,
+            @RequestBody AdminTokenPackageDTO dto) {
+        return ResponseEntity.ok(tokenDepositService.updatePackage(id, dto));
+    }
+
+    @DeleteMapping("/token-packages/{id}")
+    public ResponseEntity<Void> deleteTokenPackage(@PathVariable Long id) {
+        tokenDepositService.deletePackage(id);
         return ResponseEntity.ok().build();
     }
 }
