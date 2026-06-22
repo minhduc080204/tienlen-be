@@ -36,6 +36,7 @@ public class JwtService {
                 .setSubject(user.getAccount())
                 .claim("id", user.getId())
                 .claim("name", user.getName())
+                .claim("role", user.getRole())
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + EXPIRATION))
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256)
@@ -84,6 +85,7 @@ public class JwtService {
         UserResponse user = new UserResponse();
         user.setId(claims.get("id", Long.class));
         user.setName(claims.get("name", String.class));
+        user.setRole(claims.get("role", String.class));
 
         return user;
     }

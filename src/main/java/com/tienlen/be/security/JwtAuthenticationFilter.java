@@ -2,8 +2,11 @@ package com.tienlen.be.security;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.List;
 
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
@@ -36,10 +39,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             if (jwtService.validate(token)) {
                 UserResponse userResponse = jwtService.parse(token);
+                
+                List<GrantedAuthority> authorities = Collections.emptyList();
+                if (userResponse.getRole() != null) {
+                    authorities = Collections.singletonList(
+                            new SimpleGrantedAuthority("ROLE_" + userResponse.getRole())
+                    );
+                }
+
                 UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                         userResponse,
                         null,
-                        Collections.emptyList());
+                        authorities);
 
                 authentication.setDetails(
                         new WebAuthenticationDetailsSource().buildDetails(request));

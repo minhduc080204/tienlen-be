@@ -19,6 +19,15 @@ public class NftItem {
 
     @Column(name = "price_matic", precision = 38, scale = 18)
     private BigDecimal priceMatic;
+
+    @Builder.Default
+    @Column(nullable = false, columnDefinition = "VARCHAR(50) DEFAULT 'STANDARD'")
+    private String type = "STANDARD";
+
+    @Builder.Default
+    @Column(nullable = false, updatable = false, columnDefinition = "DATETIME DEFAULT CURRENT_TIMESTAMP")
+    private java.time.LocalDateTime createdAt = java.time.LocalDateTime.now();
+
     private boolean active;
     private boolean defaultItem;
 }
